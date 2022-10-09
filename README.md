@@ -13,8 +13,9 @@ This code was forked from the `cosmos/gaia` repository as a basis and then we ad
 many gaia-specific files. However, the `wasmd` binary should function just like `gaiad` except for the
 addition of the `x/wasm` module.
 
-**Note**: Requires [Go 1.17+](https://golang.org/dl/)
+**Note**: Requires [Go 1.18+](https://golang.org/dl/)
 
+For critical security issues & disclosure, see [SECURITY.md](SECURITY.md).
 ## Compatibility with CosmWasm contracts
 
 ## Compatibility
@@ -23,25 +24,37 @@ A VM can support one or more contract-VM interface versions. The interface
 version is communicated by the contract via a Wasm export. This is the current
 compatibility list:
 
-| wasmd | cosmwasm-vm | cosmwasm-std |
-| ----- | ----------- | ------------ |
-| 0.21  | 1.0.0-beta | 1.0.0-beta  |
-| 0.20  | 1.0.0-beta | 1.0.0-beta  |
-| 0.19  | 0.16        | 0.16         |
-| 0.18  | 0.16        | 0.16         |
-| 0.17  | 0.14        | 0.14         |
-| 0.16  | 0.14        | 0.14         |
-| 0.15  | 0.13        | 0.11-0.13    |
-| 0.14  | 0.13        | 0.11-0.13    |
-| 0.13  | 0.12        | 0.11-0.13    |
-| 0.12  | 0.12        | 0.11-0.13    |
-| 0.11  | 0.11        | 0.11-0.13    |
-| 0.10  | 0.10        | 0.10         |
-| 0.9   | 0.9         | 0.9          |
-| 0.8   | 0.8         | 0.8          |
+| wasmd | wasmvm       | cosmwasm-vm | cosmwasm-std |
+|-------|--------------|-------------|--------------|
+| 0.29  | v1.1.0       |             | 1.0-1.1      |
+| 0.28  | v1.0.0       |             | 1.0-1.1      |
+| 0.27  | v1.0.0       |             | 1.0          |
+| 0.26  | 1.0.0-beta10 |             | 1.0          |
+| 0.25  | 1.0.0-beta10 |             | 1.0          |
+| 0.24  | 1.0.0-beta7  | 1.0.0-beta6 | 1.0          |
+| 0.23  |              | 1.0.0-beta5 | 1.0          |
+| 0.22  |              | 1.0.0-beta5 | 1.0          |
+| 0.21  |              | 1.0.0-beta2 | 1.0          |
+| 0.20  |              | 1.0.0-beta  | 1.0          |
+| 0.19  |              | 0.16        | 0.16         |
+| 0.18  |              | 0.16        | 0.16         |
+| 0.17  |              | 0.14        | 0.14         |
+| 0.16  |              | 0.14        | 0.14         |
+| 0.15  |              | 0.13        | 0.11-0.13    |
+| 0.14  |              | 0.13        | 0.11-0.13    |
+| 0.13  |              | 0.12        | 0.11-0.13    |
+| 0.12  |              | 0.12        | 0.11-0.13    |
+| 0.11  |              | 0.11        | 0.11-0.13    |
+| 0.10  |              | 0.10        | 0.10         |
+| 0.9   |              | 0.9         | 0.9          |
+| 0.8   |              | 0.8         | 0.8          |
+
+Note: `cosmwasm_std v1.0` means it supports contracts compiled by any `v1.0.0-betaX` or `1.0.x`.
+It will also run contracts compiled with 1.x assuming they don't opt into any newer features.
+The 1.x cosmwasm_vm will support all contracts with 1.0 <= version <= 1.x. 
 
 Note that `cosmwasm-std` version defines which contracts are compatible with this system. The wasm code uploaded must
-have been compiled with one of the supported `cosmwasm-std` versions, or will be rejeted upon upload (with some error
+have been compiled with one of the supported `cosmwasm-std` versions, or will be rejected upon upload (with some error
 message about "contract too old?" or "contract too new?"). `cosmwasm-vm` version defines the runtime used. It is a
 breaking change to switch runtimes (you will need to organize a chain upgrade). As of `cosmwasm-vm 0.13` we are
 using [wasmer](https://github.com/wasmerio/wasmer/) 1.0, which is significantly more performant than the older versions.
@@ -49,7 +62,7 @@ using [wasmer](https://github.com/wasmerio/wasmer/) 1.0, which is significantly 
 ## Supported Systems
 
 The supported systems are limited by the dlls created in [`wasmvm`](https://github.com/CosmWasm/wasmvm). In particular, **we only support MacOS and Linux**.
-However, **M1 macs are currently not supported.**
+However, **M1 macs are not fully supported.** (Experimental support was merged with wasmd 0.24)
 For linux, the default is to build for glibc, and we cross-compile with CentOS 7 to provide
 backwards compatibility for `glibc 2.12+`. This includes all known supported distributions
 using glibc (CentOS 7 uses 2.12, obsolete Debian Jessy uses 2.19). 
@@ -63,18 +76,20 @@ binary for `muslc`. (Or just use this Dockerfile for your production setup).
 
 ## Stability
 
-**This is alpha software, do not run on a production system.** Notably, we currently provide **no migration path** not even "dump state and restart" to move to future versions. At **beta** we will begin to offer migrations and better backwards compatibility guarantees.
+**This is beta software** It is run in some production systems, but we cannot yet provide a stability guarantee
+and have not yet gone through and audit of this codebase. Note that the
+[CosmWasm smart contract framework](https://github.com/CosmWasm/cosmwasm) used by `wasmd` is in a 1.0 release candidate
+as of March 2022, with stability guarantee and addressing audit results.
 
-With the `v0.6.0` tag, we entered semver. That means anything with `v0.6.x` tags is compatible with each other, 
-and everything with `v0.7.x` tags is compatible with each other. 
-Between these minor versions, there is API breakage with no upgrade path provided.
+As of `wasmd` 0.22, we will work to provide upgrade paths *for this module* for projects running a non-forked
+version on their live networks. If there are Cosmos SDK upgrades, you will have to run their migration code
+for their modules. If we change the internal storage of `x/wasm` we will provide a function to migrate state that
+can be called by an `x/upgrade` handler.
 
-We will have a stable `v0.x` version before the final `v1.0.0` version with
-the same API as the `v1.0` version in order to run last testnets and manual testing on it.
-We have not yet committed to that version number. Our `v1.0.0` release plans were also
-delayed by upstream release cycles, and we have continued to refine APIs while we can.
+The APIs are pretty stable, but we cannot guarantee their stability until we reach v1.0.
+However, we will provide a way for you to hard-fork your way to v1.0.
 
-Thank you to all projects who have run this code in your testnets and
+Thank you to all projects who have run this code in your mainnets and testnets and
 given feedback to improve stability.
 
 ## Encoding
@@ -82,9 +97,9 @@ The used cosmos-sdk version is in transition migrating from amino encoding to pr
 
 We use standard cosmos-sdk encoding (amino) for all sdk Messages. However, the message body sent to all contracts, 
 as well as the internal state is encoded using JSON. Cosmwasm allows arbitrary bytes with the contract itself 
-responsible for decodng. For better UX, we often use `json.RawMessage` to contain these bytes, which enforces that it is
+responsible for decoding. For better UX, we often use `json.RawMessage` to contain these bytes, which enforces that it is
 valid json, but also give a much more readable interface.  If you want to use another encoding in the contracts, that is
-a relatively minor change to wasmd but would currently require a fork. Please open in issue if this is important for 
+a relatively minor change to wasmd but would currently require a fork. Please open an issue if this is important for 
 your use case.
 
 ## Quick Start
@@ -94,10 +109,6 @@ make install
 make test
 ```
 if you are using a linux without X or headless linux, look at [this article](https://ahelpme.com/linux/dbusexception-could-not-get-owner-of-name-org-freedesktop-secrets-no-such-name) or [#31](https://github.com/CosmWasm/wasmd/issues/31#issuecomment-577058321).
-
-To set up a single node testnet, [look at the deployment documentation](./docs/deploy-testnet.md).
-
-If you want to deploy a whole cluster, [look at the network scripts](./networks/README.md).
 
 ## Protobuf
 Generate protobuf
@@ -168,10 +179,9 @@ docker run --rm -it -p 26657:26657 -p 26656:26656 -p 1317:1317 \
 
 We provide a number of variables in `app/app.go` that are intended to be set via `-ldflags -X ...`
 compile-time flags. This enables us to avoid copying a new binary directory over for each small change
-to the configuration.
+to the configuration. 
 
 Available flags:
-
  
 * `-X github.com/CosmWasm/wasmd/app.NodeDir=.corald` - set the config/data directory for the node (default `~/.wasmd`)
 * `-X github.com/CosmWasm/wasmd/app.Bech32Prefix=coral` - set the bech32 prefix for all accounts (default `wasm`)
@@ -182,6 +192,17 @@ Available flags:
 Examples:
 
 * [`wasmd`](./Makefile#L50-L55) is a generic, permissionless version using the `cosmos` bech32 prefix
+
+## Compile Time Parameters
+
+Besides those above variables (meant for custom wasmd compilation), there are a few more variables which
+we allow blockchains to customize, but at compile time. If you build your own chain and import `x/wasm`,
+you can adjust a few items via module parameters, but a few others did not fit in that, as they need to be
+used by stateless `ValidateBasic()`. Thus, we made them public `var` and these can be overridden in the `app.go`
+file of your custom chain.
+
+* `wasmtypes.MaxLabelSize = 64` to set the maximum label size on instantiation (default 128)
+* `wasmtypes.MaxWasmSize=777000` to set the max size of compiled wasm to be accepted (default 819200)
 
 ## Genesis Configuration
 We strongly suggest **to limit the max block gas in the genesis** and not use the default value (`-1` for infinite).

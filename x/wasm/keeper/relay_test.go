@@ -19,8 +19,8 @@ import (
 func TestOnOpenChannel(t *testing.T) {
 	var m wasmtesting.MockWasmer
 	wasmtesting.MakeIBCInstantiable(&m)
-	var messenger = &wasmtesting.MockMessageHandler{}
-	parentCtx, keepers := CreateTestInput(t, false, SupportedFeatures, WithMessageHandler(messenger))
+	messenger := &wasmtesting.MockMessageHandler{}
+	parentCtx, keepers := CreateTestInput(t, false, AvailableCapabilities, WithMessageHandler(messenger))
 	example := SeedNewContractInstance(t, parentCtx, keepers, &m)
 	const myContractGas = 40
 
@@ -56,9 +56,9 @@ func TestOnOpenChannel(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			myChannel := wasmvmtypes.IBCChannel{Version: "my test channel"}
 			myMsg := wasmvmtypes.IBCChannelOpenMsg{OpenTry: &wasmvmtypes.IBCOpenTry{Channel: myChannel, CounterpartyVersion: "foo"}}
-			m.IBCChannelOpenFn = func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelOpenMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (uint64, error) {
+			m.IBCChannelOpenFn = func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelOpenMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBC3ChannelOpenResponse, uint64, error) {
 				assert.Equal(t, myMsg, msg)
-				return spec.contractGas * DefaultGasMultiplier, spec.contractErr
+				return &wasmvmtypes.IBC3ChannelOpenResponse{}, spec.contractGas * DefaultGasMultiplier, spec.contractErr
 			}
 
 			ctx, _ := parentCtx.CacheContext()
@@ -71,7 +71,7 @@ func TestOnOpenChannel(t *testing.T) {
 					CounterpartyVersion: "foo",
 				},
 			}
-			err := keepers.WasmKeeper.OnOpenChannel(ctx, spec.contractAddr, msg)
+			_, err := keepers.WasmKeeper.OnOpenChannel(ctx, spec.contractAddr, msg)
 
 			// then
 			if spec.expErr {
@@ -80,7 +80,7 @@ func TestOnOpenChannel(t *testing.T) {
 			}
 			require.NoError(t, err)
 			// verify gas consumed
-			const storageCosts = sdk.Gas(0xa9d)
+			const storageCosts = sdk.Gas(2903)
 			assert.Equal(t, spec.expGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 		})
 	}
@@ -89,8 +89,8 @@ func TestOnOpenChannel(t *testing.T) {
 func TestOnConnectChannel(t *testing.T) {
 	var m wasmtesting.MockWasmer
 	wasmtesting.MakeIBCInstantiable(&m)
-	var messenger = &wasmtesting.MockMessageHandler{}
-	parentCtx, keepers := CreateTestInput(t, false, SupportedFeatures, WithMessageHandler(messenger))
+	messenger := &wasmtesting.MockMessageHandler{}
+	parentCtx, keepers := CreateTestInput(t, false, AvailableCapabilities, WithMessageHandler(messenger))
 	example := SeedNewContractInstance(t, parentCtx, keepers, &m)
 	const myContractGas = 40
 
@@ -185,7 +185,7 @@ func TestOnConnectChannel(t *testing.T) {
 			}
 			require.NoError(t, err)
 			// verify gas consumed
-			const storageCosts = sdk.Gas(0xa9d)
+			const storageCosts = sdk.Gas(2903)
 			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
@@ -200,8 +200,8 @@ func TestOnConnectChannel(t *testing.T) {
 func TestOnCloseChannel(t *testing.T) {
 	var m wasmtesting.MockWasmer
 	wasmtesting.MakeIBCInstantiable(&m)
-	var messenger = &wasmtesting.MockMessageHandler{}
-	parentCtx, keepers := CreateTestInput(t, false, SupportedFeatures, WithMessageHandler(messenger))
+	messenger := &wasmtesting.MockMessageHandler{}
+	parentCtx, keepers := CreateTestInput(t, false, AvailableCapabilities, WithMessageHandler(messenger))
 	example := SeedNewContractInstance(t, parentCtx, keepers, &m)
 	const myContractGas = 40
 
@@ -295,7 +295,7 @@ func TestOnCloseChannel(t *testing.T) {
 			}
 			require.NoError(t, err)
 			// verify gas consumed
-			const storageCosts = sdk.Gas(0xa9d)
+			const storageCosts = sdk.Gas(2903)
 			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
@@ -310,10 +310,11 @@ func TestOnCloseChannel(t *testing.T) {
 func TestOnRecvPacket(t *testing.T) {
 	var m wasmtesting.MockWasmer
 	wasmtesting.MakeIBCInstantiable(&m)
-	var messenger = &wasmtesting.MockMessageHandler{}
-	parentCtx, keepers := CreateTestInput(t, false, SupportedFeatures, WithMessageHandler(messenger))
+	messenger := &wasmtesting.MockMessageHandler{}
+	parentCtx, keepers := CreateTestInput(t, false, AvailableCapabilities, WithMessageHandler(messenger))
 	example := SeedNewContractInstance(t, parentCtx, keepers, &m)
 	const myContractGas = 40
+	const storageCosts = sdk.Gas(2903)
 
 	specs := map[string]struct {
 		contractAddr       sdk.AccAddress
@@ -400,7 +401,7 @@ func TestOnRecvPacket(t *testing.T) {
 		},
 		"submessage reply can overwrite ack data": {
 			contractAddr:   example.Contract,
-			expContractGas: myContractGas + 10 + 2707,
+			expContractGas: myContractGas + storageCosts,
 			contractResp: &wasmvmtypes.IBCReceiveResponse{
 				Acknowledgement: []byte("myAck"),
 				Messages:        []wasmvmtypes.SubMsg{{ReplyOn: wasmvmtypes.ReplyAlways, Msg: wasmvmtypes.CosmosMsg{Bank: &wasmvmtypes.BankMsg{}}}},
@@ -420,9 +421,9 @@ func TestOnRecvPacket(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			myPacket := wasmvmtypes.IBCPacket{Data: []byte("my data")}
 
-			m.IBCPacketReceiveFn = func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketReceiveMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCReceiveResponse, uint64, error) {
+			m.IBCPacketReceiveFn = func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketReceiveMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCReceiveResult, uint64, error) {
 				assert.Equal(t, myPacket, msg.Packet)
-				return spec.contractResp, myContractGas * DefaultGasMultiplier, spec.contractErr
+				return &wasmvmtypes.IBCReceiveResult{Ok: spec.contractResp}, myContractGas * DefaultGasMultiplier, spec.contractErr
 			}
 			if spec.mockReplyFn != nil {
 				m.ReplyFn = spec.mockReplyFn
@@ -456,7 +457,7 @@ func TestOnRecvPacket(t *testing.T) {
 			require.Equal(t, spec.expAck, gotAck)
 
 			// verify gas consumed
-			const storageCosts = sdk.Gas(0xa9d)
+			const storageCosts = sdk.Gas(2903)
 			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
@@ -471,8 +472,8 @@ func TestOnRecvPacket(t *testing.T) {
 func TestOnAckPacket(t *testing.T) {
 	var m wasmtesting.MockWasmer
 	wasmtesting.MakeIBCInstantiable(&m)
-	var messenger = &wasmtesting.MockMessageHandler{}
-	parentCtx, keepers := CreateTestInput(t, false, SupportedFeatures, WithMessageHandler(messenger))
+	messenger := &wasmtesting.MockMessageHandler{}
+	parentCtx, keepers := CreateTestInput(t, false, AvailableCapabilities, WithMessageHandler(messenger))
 	example := SeedNewContractInstance(t, parentCtx, keepers, &m)
 	const myContractGas = 40
 
@@ -533,7 +534,6 @@ func TestOnAckPacket(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-
 			myAck := wasmvmtypes.IBCPacketAckMsg{Acknowledgement: wasmvmtypes.IBCAcknowledgement{Data: []byte("myAck")}}
 			m.IBCPacketAckFn = func(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketAckMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error) {
 				assert.Equal(t, myAck, msg)
@@ -562,7 +562,7 @@ func TestOnAckPacket(t *testing.T) {
 			}
 			require.NoError(t, err)
 			// verify gas consumed
-			const storageCosts = sdk.Gas(0xa9d)
+			const storageCosts = sdk.Gas(2903)
 			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
@@ -577,8 +577,8 @@ func TestOnAckPacket(t *testing.T) {
 func TestOnTimeoutPacket(t *testing.T) {
 	var m wasmtesting.MockWasmer
 	wasmtesting.MakeIBCInstantiable(&m)
-	var messenger = &wasmtesting.MockMessageHandler{}
-	parentCtx, keepers := CreateTestInput(t, false, SupportedFeatures, WithMessageHandler(messenger))
+	messenger := &wasmtesting.MockMessageHandler{}
+	parentCtx, keepers := CreateTestInput(t, false, AvailableCapabilities, WithMessageHandler(messenger))
 	example := SeedNewContractInstance(t, parentCtx, keepers, &m)
 	const myContractGas = 40
 
@@ -682,7 +682,7 @@ func TestOnTimeoutPacket(t *testing.T) {
 			}
 			require.NoError(t, err)
 			// verify gas consumed
-			const storageCosts = sdk.Gas(0xa9d)
+			const storageCosts = sdk.Gas(2903)
 			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))

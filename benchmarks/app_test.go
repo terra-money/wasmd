@@ -2,7 +2,8 @@ package benchmarks
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -27,7 +28,8 @@ import (
 )
 
 func setup(db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*app.WasmApp, app.GenesisState) {
-	wasmApp := app.NewWasmApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, app.DefaultNodeHome, invCheckPeriod, wasm.EnableAllProposals, app.EmptyBaseAppOptions{}, opts)
+	encodingConfig := app.MakeEncodingConfig()
+	wasmApp := app.NewWasmApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, app.DefaultNodeHome, invCheckPeriod, encodingConfig, wasm.EnableAllProposals, app.EmptyBaseAppOptions{}, opts)
 	if withGenesis {
 		return wasmApp, app.NewDefaultGenesisState()
 	}
@@ -36,11 +38,10 @@ func setup(db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option
 
 // SetupWithGenesisAccounts initializes a new WasmApp with the provided genesis
 // accounts and possible balances.
-func SetupWithGenesisAccounts(db dbm.DB, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *app.WasmApp {
+func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *app.WasmApp {
 	wasmApp, genesisState := setup(db, true, 0)
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
-	encodingConfig := app.MakeEncodingConfig()
-	appCodec := encodingConfig.Marshaler
+	appCodec := app.NewTestSupport(b, wasmApp).AppCodec()
 
 	genesisState[authtypes.ModuleName] = appCodec.MustMarshalJSON(authGenesis)
 
@@ -111,7 +112,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 			Coins:   sdk.NewCoins(sdk.NewInt64Coin(denom, 100000000000)),
 		}
 	}
-	wasmApp := SetupWithGenesisAccounts(db, genAccs, bals...)
+	wasmApp := SetupWithGenesisAccounts(b, db, genAccs, bals...)
 
 	// add wasm contract
 	height := int64(2)
@@ -119,13 +120,14 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	wasmApp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height, Time: time.Now()}})
 
 	// upload the code
-	cw20Code, err := ioutil.ReadFile("./testdata/cw20_base.wasm")
+	cw20Code, err := os.ReadFile("./testdata/cw20_base.wasm")
 	require.NoError(b, err)
 	storeMsg := wasmtypes.MsgStoreCode{
 		Sender:       addr.String(),
 		WASMByteCode: cw20Code,
 	}
-	storeTx, err := helpers.GenTx(txGen, []sdk.Msg{&storeMsg}, nil, 55123123, "", []uint64{0}, []uint64{0}, minter)
+	storeTx, err := helpers.GenTx(rand.New(rand.NewSource(time.Now().UnixNano())),
+		txGen, []sdk.Msg{&storeMsg}, nil, 55123123, "", []uint64{0}, []uint64{0}, minter)
 	require.NoError(b, err)
 	_, res, err := wasmApp.Deliver(txGen.TxEncoder(), storeTx)
 	require.NoError(b, err)
@@ -159,7 +161,8 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 		Msg:    initBz,
 	}
 	gasWanted := 500000 + 10000*uint64(numAccounts)
-	initTx, err := helpers.GenTx(txGen, []sdk.Msg{&initMsg}, nil, gasWanted, "", []uint64{0}, []uint64{1}, minter)
+	initTx, err := helpers.GenTx(rand.New(rand.NewSource(time.Now().UnixNano())),
+		txGen, []sdk.Msg{&initMsg}, nil, gasWanted, "", []uint64{0}, []uint64{1}, minter)
 	require.NoError(b, err)
 	_, res, err = wasmApp.Deliver(txGen.TxEncoder(), initTx)
 	require.NoError(b, err)
@@ -192,6 +195,7 @@ func GenSequenceOfTxs(b testing.TB, info *AppInfo, msgGen func(*AppInfo) ([]sdk.
 		msgs, err := msgGen(info)
 		require.NoError(b, err)
 		txs[i], err = helpers.GenTx(
+			rand.New(rand.NewSource(time.Now().UnixNano())),
 			info.TxConfig,
 			msgs,
 			fees,

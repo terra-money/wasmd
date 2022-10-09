@@ -2,11 +2,9 @@ package keeper
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"strings"
 	"testing"
-
-	"github.com/golang/protobuf/proto"
 
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -16,62 +14,17 @@ import (
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/CosmWasm/wasmd/x/wasm/keeper/testdata"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
 // ReflectInitMsg is {}
 
-// ReflectHandleMsg is used to encode handle messages
-type ReflectHandleMsg struct {
-	Reflect       *reflectPayload    `json:"reflect_msg,omitempty"`
-	ReflectSubMsg *reflectSubPayload `json:"reflect_sub_msg,omitempty"`
-	Change        *ownerPayload      `json:"change_owner,omitempty"`
-}
-
-type ownerPayload struct {
-	Owner sdk.Address `json:"owner"`
-}
-
-type reflectPayload struct {
-	Msgs []wasmvmtypes.CosmosMsg `json:"msgs"`
-}
-
-type reflectSubPayload struct {
-	Msgs []wasmvmtypes.SubMsg `json:"msgs"`
-}
-
-// ReflectQueryMsg is used to encode query messages
-type ReflectQueryMsg struct {
-	Owner        *struct{}   `json:"owner,omitempty"`
-	Capitalized  *Text       `json:"capitalized,omitempty"`
-	Chain        *ChainQuery `json:"chain,omitempty"`
-	SubMsgResult *SubCall    `json:"sub_msg_result,omitempty"`
-}
-
-type ChainQuery struct {
-	Request *wasmvmtypes.QueryRequest `json:"request,omitempty"`
-}
-
-type Text struct {
-	Text string `json:"text"`
-}
-
-type SubCall struct {
-	ID uint64 `json:"id"`
-}
-
-type OwnerResponse struct {
-	Owner string `json:"owner,omitempty"`
-}
-
-type ChainResponse struct {
-	Data []byte `json:"data,omitempty"`
-}
-
-func buildReflectQuery(t *testing.T, query *ReflectQueryMsg) []byte {
+func buildReflectQuery(t *testing.T, query *testdata.ReflectQueryMsg) []byte {
 	bz, err := json.Marshal(query)
 	require.NoError(t, err)
 	return bz
@@ -82,7 +35,7 @@ func mustParse(t *testing.T, data []byte, res interface{}) {
 	require.NoError(t, err)
 }
 
-const ReflectFeatures = "staking,mask,stargate"
+const ReflectFeatures = "staking,mask,stargate,cosmwasm_1_1"
 
 func TestReflectContractSend(t *testing.T) {
 	cdc := MakeEncodingConfig(t).Marshaler
@@ -90,20 +43,18 @@ func TestReflectContractSend(t *testing.T) {
 	accKeeper, keeper, bankKeeper := keepers.AccountKeeper, keepers.ContractKeeper, keepers.BankKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, deposit)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
 	_, _, bob := keyPubAddr()
 
 	// upload reflect code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
-	require.NoError(t, err)
-	reflectID, err := keeper.Create(ctx, creator, reflectCode, nil)
+	reflectID, _, err := keeper.Create(ctx, creator, testdata.ReflectContractWasm(), nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), reflectID)
 
 	// upload hackatom escrow code
-	escrowCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	escrowCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
-	escrowID, err := keeper.Create(ctx, creator, escrowCode, nil)
+	escrowID, _, err := keeper.Create(ctx, creator, escrowCode, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), escrowID)
 
@@ -148,8 +99,8 @@ func TestReflectContractSend(t *testing.T) {
 			},
 		},
 	}}
-	reflectSend := ReflectHandleMsg{
-		Reflect: &reflectPayload{
+	reflectSend := testdata.ReflectHandleMsg{
+		Reflect: &testdata.ReflectPayload{
 			Msgs: msgs,
 		},
 	}
@@ -163,7 +114,6 @@ func TestReflectContractSend(t *testing.T) {
 	checkAccount(t, ctx, accKeeper, bankKeeper, reflectAddr, sdk.NewCoins(sdk.NewInt64Coin("denom", 26000))) // 40k - 14k (from send)
 	checkAccount(t, ctx, accKeeper, bankKeeper, escrowAddr, sdk.Coins{})                                     // emptied reserved
 	checkAccount(t, ctx, accKeeper, bankKeeper, bob, sdk.NewCoins(sdk.NewInt64Coin("denom", 39000)))         // all escrow of 25k + 14k
-
 }
 
 func TestReflectCustomMsg(t *testing.T) {
@@ -172,14 +122,12 @@ func TestReflectCustomMsg(t *testing.T) {
 	accKeeper, keeper, bankKeeper := keepers.AccountKeeper, keepers.ContractKeeper, keepers.BankKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, deposit)
-	bob := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, deposit)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
+	bob := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
 	_, _, fred := keyPubAddr()
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
-	require.NoError(t, err)
-	codeID, err := keeper.Create(ctx, creator, reflectCode, nil)
+	codeID, _, err := keeper.Create(ctx, creator, testdata.ReflectContractWasm(), nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), codeID)
 
@@ -190,8 +138,8 @@ func TestReflectCustomMsg(t *testing.T) {
 	require.NotEmpty(t, contractAddr)
 
 	// set owner to bob
-	transfer := ReflectHandleMsg{
-		Change: &ownerPayload{
+	transfer := testdata.ReflectHandleMsg{
+		ChangeOwner: &testdata.OwnerPayload{
 			Owner: bob,
 		},
 	}
@@ -217,8 +165,8 @@ func TestReflectCustomMsg(t *testing.T) {
 			},
 		},
 	}}
-	reflectSend := ReflectHandleMsg{
-		Reflect: &reflectPayload{
+	reflectSend := testdata.ReflectHandleMsg{
+		Reflect: &testdata.ReflectPayload{
 			Msgs: msgs,
 		},
 	}
@@ -241,8 +189,8 @@ func TestReflectCustomMsg(t *testing.T) {
 	}
 	opaque, err := toReflectRawMsg(cdc, sdkSendMsg)
 	require.NoError(t, err)
-	reflectOpaque := ReflectHandleMsg{
-		Reflect: &reflectPayload{
+	reflectOpaque := testdata.ReflectHandleMsg{
+		Reflect: &testdata.ReflectPayload{
 			Msgs: []wasmvmtypes.CosmosMsg{opaque},
 		},
 	}
@@ -262,15 +210,13 @@ func TestReflectCustomMsg(t *testing.T) {
 func TestMaskReflectCustomQuery(t *testing.T) {
 	cdc := MakeEncodingConfig(t).Marshaler
 	ctx, keepers := CreateTestInput(t, false, ReflectFeatures, WithMessageEncoders(reflectEncoders(cdc)), WithQueryPlugins(reflectPlugins()))
-	accKeeper, keeper, bankKeeper := keepers.AccountKeeper, keepers.WasmKeeper, keepers.BankKeeper
+	keeper := keepers.WasmKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, deposit)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
-	require.NoError(t, err)
-	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
+	codeID, _, err := keepers.ContractKeeper.Create(ctx, creator, testdata.ReflectContractWasm(), nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), codeID)
 
@@ -281,21 +227,21 @@ func TestMaskReflectCustomQuery(t *testing.T) {
 	require.NotEmpty(t, contractAddr)
 
 	// let's perform a normal query of state
-	ownerQuery := ReflectQueryMsg{
+	ownerQuery := testdata.ReflectQueryMsg{
 		Owner: &struct{}{},
 	}
 	ownerQueryBz, err := json.Marshal(ownerQuery)
 	require.NoError(t, err)
 	ownerRes, err := keeper.QuerySmart(ctx, contractAddr, ownerQueryBz)
 	require.NoError(t, err)
-	var res OwnerResponse
+	var res testdata.OwnerResponse
 	err = json.Unmarshal(ownerRes, &res)
 	require.NoError(t, err)
 	assert.Equal(t, res.Owner, creator.String())
 
 	// and now making use of the custom querier callbacks
-	customQuery := ReflectQueryMsg{
-		Capitalized: &Text{
+	customQuery := testdata.ReflectQueryMsg{
+		Capitalized: &testdata.Text{
 			Text: "all Caps noW",
 		},
 	}
@@ -312,17 +258,15 @@ func TestMaskReflectCustomQuery(t *testing.T) {
 func TestReflectStargateQuery(t *testing.T) {
 	cdc := MakeEncodingConfig(t).Marshaler
 	ctx, keepers := CreateTestInput(t, false, ReflectFeatures, WithMessageEncoders(reflectEncoders(cdc)), WithQueryPlugins(reflectPlugins()))
-	accKeeper, keeper, bankKeeper := keepers.AccountKeeper, keepers.WasmKeeper, keepers.BankKeeper
+	keeper := keepers.WasmKeeper
 
 	funds := sdk.NewCoins(sdk.NewInt64Coin("denom", 320000))
 	contractStart := sdk.NewCoins(sdk.NewInt64Coin("denom", 40000))
 	expectedBalance := funds.Sub(contractStart)
-	creator := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, funds)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, funds...)
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
-	require.NoError(t, err)
-	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
+	codeID, _, err := keepers.ContractKeeper.Create(ctx, creator, testdata.ReflectContractWasm(), nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), codeID)
 
@@ -339,19 +283,90 @@ func TestReflectStargateQuery(t *testing.T) {
 			},
 		},
 	}
-	simpleQueryBz, err := json.Marshal(ReflectQueryMsg{
-		Chain: &ChainQuery{Request: &bankQuery},
+	simpleQueryBz, err := json.Marshal(testdata.ReflectQueryMsg{
+		Chain: &testdata.ChainQuery{Request: &bankQuery},
 	})
 	require.NoError(t, err)
 	simpleRes, err := keeper.QuerySmart(ctx, contractAddr, simpleQueryBz)
 	require.NoError(t, err)
-	var simpleChain ChainResponse
+	var simpleChain testdata.ChainResponse
 	mustParse(t, simpleRes, &simpleChain)
 	var simpleBalance wasmvmtypes.AllBalancesResponse
 	mustParse(t, simpleChain.Data, &simpleBalance)
 	require.Equal(t, len(expectedBalance), len(simpleBalance.Amount))
 	assert.Equal(t, simpleBalance.Amount[0].Amount, expectedBalance[0].Amount.String())
 	assert.Equal(t, simpleBalance.Amount[0].Denom, expectedBalance[0].Denom)
+}
+
+func TestReflectTotalSupplyQuery(t *testing.T) {
+	cdc := MakeEncodingConfig(t).Marshaler
+	ctx, keepers := CreateTestInput(t, false, ReflectFeatures, WithMessageEncoders(reflectEncoders(cdc)), WithQueryPlugins(reflectPlugins()))
+	keeper := keepers.WasmKeeper
+	// upload code
+	codeID := StoreReflectContract(t, ctx, keepers).CodeID
+	// creator instantiates a contract and gives it tokens
+	creator := RandomAccountAddress(t)
+	contractAddr, _, err := keepers.ContractKeeper.Instantiate(ctx, codeID, creator, nil, []byte("{}"), "testing", nil)
+	require.NoError(t, err)
+
+	currentStakeSupply := keepers.BankKeeper.GetSupply(ctx, "stake")
+	require.NotEmpty(t, currentStakeSupply.Amount) // ensure we have real data
+	specs := map[string]struct {
+		denom     string
+		expAmount wasmvmtypes.Coin
+	}{
+		"known denom": {
+			denom:     "stake",
+			expAmount: ConvertSdkCoinToWasmCoin(currentStakeSupply),
+		},
+		"unknown denom": {
+			denom:     "unknown",
+			expAmount: wasmvmtypes.Coin{Denom: "unknown", Amount: "0"},
+		},
+	}
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			// when
+			queryBz := mustMarshal(t, testdata.ReflectQueryMsg{
+				Chain: &testdata.ChainQuery{
+					Request: &wasmvmtypes.QueryRequest{
+						Bank: &wasmvmtypes.BankQuery{
+							Supply: &wasmvmtypes.SupplyQuery{spec.denom},
+						},
+					},
+				},
+			})
+			simpleRes, err := keeper.QuerySmart(ctx, contractAddr, queryBz)
+
+			// then
+			require.NoError(t, err)
+			var rsp testdata.ChainResponse
+			mustParse(t, simpleRes, &rsp)
+			var supplyRsp wasmvmtypes.SupplyResponse
+			mustParse(t, rsp.Data, &supplyRsp)
+			assert.Equal(t, spec.expAmount, supplyRsp.Amount, spec.expAmount)
+		})
+	}
+}
+
+func TestReflectInvalidStargateQuery(t *testing.T) {
+	cdc := MakeEncodingConfig(t).Marshaler
+	ctx, keepers := CreateTestInput(t, false, ReflectFeatures, WithMessageEncoders(reflectEncoders(cdc)), WithQueryPlugins(reflectPlugins()))
+	keeper := keepers.WasmKeeper
+
+	funds := sdk.NewCoins(sdk.NewInt64Coin("denom", 320000))
+	contractStart := sdk.NewCoins(sdk.NewInt64Coin("denom", 40000))
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, funds...)
+
+	// upload code
+	codeID, _, err := keepers.ContractKeeper.Create(ctx, creator, testdata.ReflectContractWasm(), nil)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), codeID)
+
+	// creator instantiates a contract and gives it tokens
+	contractAddr, _, err := keepers.ContractKeeper.Instantiate(ctx, codeID, creator, nil, []byte("{}"), "reflect contract 1", contractStart)
+	require.NoError(t, err)
+	require.NotEmpty(t, contractAddr)
 
 	// now, try to build a protobuf query
 	protoQuery := banktypes.QueryAllBalancesRequest{
@@ -364,22 +379,49 @@ func TestReflectStargateQuery(t *testing.T) {
 			Data: protoQueryBin,
 		},
 	}
-	protoQueryBz, err := json.Marshal(ReflectQueryMsg{
-		Chain: &ChainQuery{Request: &protoRequest},
+	protoQueryBz, err := json.Marshal(testdata.ReflectQueryMsg{
+		Chain: &testdata.ChainQuery{Request: &protoRequest},
 	})
 	require.NoError(t, err)
 
-	// make a query on the chain
-	protoRes, err := keeper.QuerySmart(ctx, contractAddr, protoQueryBz)
-	require.NoError(t, err)
-	var protoChain ChainResponse
-	mustParse(t, protoRes, &protoChain)
+	// make a query on the chain, should be blacklisted
+	_, err = keeper.QuerySmart(ctx, contractAddr, protoQueryBz)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Stargate queries are disabled")
 
-	// unmarshal raw protobuf response
-	var protoResult banktypes.QueryAllBalancesResponse
-	err = proto.Unmarshal(protoChain.Data, &protoResult)
+	// now, try to build a protobuf query
+	protoRequest = wasmvmtypes.QueryRequest{
+		Stargate: &wasmvmtypes.StargateQuery{
+			Path: "/cosmos.tx.v1beta1.Service/GetTx",
+			Data: []byte{},
+		},
+	}
+	protoQueryBz, err = json.Marshal(testdata.ReflectQueryMsg{
+		Chain: &testdata.ChainQuery{Request: &protoRequest},
+	})
 	require.NoError(t, err)
-	assert.Equal(t, expectedBalance, protoResult.Balances)
+
+	// make a query on the chain, should be blacklisted
+	_, err = keeper.QuerySmart(ctx, contractAddr, protoQueryBz)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Stargate queries are disabled")
+
+	// and another one
+	protoRequest = wasmvmtypes.QueryRequest{
+		Stargate: &wasmvmtypes.StargateQuery{
+			Path: "/cosmos.base.tendermint.v1beta1.Service/GetNodeInfo",
+			Data: []byte{},
+		},
+	}
+	protoQueryBz, err = json.Marshal(testdata.ReflectQueryMsg{
+		Chain: &testdata.ChainQuery{Request: &protoRequest},
+	})
+	require.NoError(t, err)
+
+	// make a query on the chain, should be blacklisted
+	_, err = keeper.QuerySmart(ctx, contractAddr, protoQueryBz)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Stargate queries are disabled")
 }
 
 type reflectState struct {
@@ -389,15 +431,13 @@ type reflectState struct {
 func TestMaskReflectWasmQueries(t *testing.T) {
 	cdc := MakeEncodingConfig(t).Marshaler
 	ctx, keepers := CreateTestInput(t, false, ReflectFeatures, WithMessageEncoders(reflectEncoders(cdc)), WithQueryPlugins(reflectPlugins()))
-	accKeeper, keeper := keepers.AccountKeeper, keepers.WasmKeeper
+	keeper := keepers.WasmKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, keepers.BankKeeper, deposit)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
 
 	// upload reflect code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
-	require.NoError(t, err)
-	reflectID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
+	reflectID, _, err := keepers.ContractKeeper.Create(ctx, creator, testdata.ReflectContractWasm(), nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), reflectID)
 
@@ -408,10 +448,10 @@ func TestMaskReflectWasmQueries(t *testing.T) {
 	require.NotEmpty(t, reflectAddr)
 
 	// for control, let's make some queries directly on the reflect
-	ownerQuery := buildReflectQuery(t, &ReflectQueryMsg{Owner: &struct{}{}})
+	ownerQuery := buildReflectQuery(t, &testdata.ReflectQueryMsg{Owner: &struct{}{}})
 	res, err := keeper.QuerySmart(ctx, reflectAddr, ownerQuery)
 	require.NoError(t, err)
-	var ownerRes OwnerResponse
+	var ownerRes testdata.OwnerResponse
 	mustParse(t, res, &ownerRes)
 	require.Equal(t, ownerRes.Owner, creator.String())
 
@@ -423,7 +463,7 @@ func TestMaskReflectWasmQueries(t *testing.T) {
 	require.Equal(t, stateRes.Owner, creator.String())
 
 	// now, let's reflect a smart query into the x/wasm handlers and see if we get the same result
-	reflectOwnerQuery := ReflectQueryMsg{Chain: &ChainQuery{Request: &wasmvmtypes.QueryRequest{Wasm: &wasmvmtypes.WasmQuery{
+	reflectOwnerQuery := testdata.ReflectQueryMsg{Chain: &testdata.ChainQuery{Request: &wasmvmtypes.QueryRequest{Wasm: &wasmvmtypes.WasmQuery{
 		Smart: &wasmvmtypes.SmartQuery{
 			ContractAddr: reflectAddr.String(),
 			Msg:          ownerQuery,
@@ -433,14 +473,14 @@ func TestMaskReflectWasmQueries(t *testing.T) {
 	res, err = keeper.QuerySmart(ctx, reflectAddr, reflectOwnerBin)
 	require.NoError(t, err)
 	// first we pull out the data from chain response, before parsing the original response
-	var reflectRes ChainResponse
+	var reflectRes testdata.ChainResponse
 	mustParse(t, res, &reflectRes)
-	var reflectOwnerRes OwnerResponse
+	var reflectOwnerRes testdata.OwnerResponse
 	mustParse(t, reflectRes.Data, &reflectOwnerRes)
 	require.Equal(t, reflectOwnerRes.Owner, creator.String())
 
 	// and with queryRaw
-	reflectStateQuery := ReflectQueryMsg{Chain: &ChainQuery{Request: &wasmvmtypes.QueryRequest{Wasm: &wasmvmtypes.WasmQuery{
+	reflectStateQuery := testdata.ReflectQueryMsg{Chain: &testdata.ChainQuery{Request: &wasmvmtypes.QueryRequest{Wasm: &wasmvmtypes.WasmQuery{
 		Raw: &wasmvmtypes.RawQuery{
 			ContractAddr: reflectAddr.String(),
 			Key:          configKey,
@@ -450,7 +490,7 @@ func TestMaskReflectWasmQueries(t *testing.T) {
 	res, err = keeper.QuerySmart(ctx, reflectAddr, reflectStateBin)
 	require.NoError(t, err)
 	// first we pull out the data from chain response, before parsing the original response
-	var reflectRawRes ChainResponse
+	var reflectRawRes testdata.ChainResponse
 	mustParse(t, res, &reflectRawRes)
 	// now, with the raw data, we can parse it into state
 	var reflectStateRes reflectState
@@ -461,15 +501,13 @@ func TestMaskReflectWasmQueries(t *testing.T) {
 func TestWasmRawQueryWithNil(t *testing.T) {
 	cdc := MakeEncodingConfig(t).Marshaler
 	ctx, keepers := CreateTestInput(t, false, ReflectFeatures, WithMessageEncoders(reflectEncoders(cdc)), WithQueryPlugins(reflectPlugins()))
-	accKeeper, keeper := keepers.AccountKeeper, keepers.WasmKeeper
+	keeper := keepers.WasmKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, keepers.BankKeeper, deposit)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
 
 	// upload reflect code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
-	require.NoError(t, err)
-	reflectID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
+	reflectID, _, err := keepers.ContractKeeper.Create(ctx, creator, testdata.ReflectContractWasm(), nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), reflectID)
 
@@ -485,7 +523,7 @@ func TestWasmRawQueryWithNil(t *testing.T) {
 	require.Nil(t, raw)
 
 	// and with queryRaw
-	reflectQuery := ReflectQueryMsg{Chain: &ChainQuery{Request: &wasmvmtypes.QueryRequest{Wasm: &wasmvmtypes.WasmQuery{
+	reflectQuery := testdata.ReflectQueryMsg{Chain: &testdata.ChainQuery{Request: &wasmvmtypes.QueryRequest{Wasm: &wasmvmtypes.WasmQuery{
 		Raw: &wasmvmtypes.RawQuery{
 			ContractAddr: reflectAddr.String(),
 			Key:          missingKey,
@@ -496,7 +534,7 @@ func TestWasmRawQueryWithNil(t *testing.T) {
 	require.NoError(t, err)
 
 	// first we pull out the data from chain response, before parsing the original response
-	var reflectRawRes ChainResponse
+	var reflectRawRes testdata.ChainResponse
 	mustParse(t, res, &reflectRawRes)
 	// and make sure there is no data
 	require.Empty(t, reflectRawRes.Data)
@@ -528,7 +566,7 @@ type reflectCustomMsg struct {
 
 // toReflectRawMsg encodes an sdk msg using any type with json encoding.
 // Then wraps it as an opaque message
-func toReflectRawMsg(cdc codec.Marshaler, msg sdk.Msg) (wasmvmtypes.CosmosMsg, error) {
+func toReflectRawMsg(cdc codec.Codec, msg sdk.Msg) (wasmvmtypes.CosmosMsg, error) {
 	any, err := codectypes.NewAnyWithValue(msg)
 	if err != nil {
 		return wasmvmtypes.CosmosMsg{}, err
@@ -547,7 +585,7 @@ func toReflectRawMsg(cdc codec.Marshaler, msg sdk.Msg) (wasmvmtypes.CosmosMsg, e
 }
 
 // reflectEncoders needs to be registered in test setup to handle custom message callbacks
-func reflectEncoders(cdc codec.Marshaler) *MessageEncoders {
+func reflectEncoders(cdc codec.Codec) *MessageEncoders {
 	return &MessageEncoders{
 		Custom: fromReflectRawMsg(cdc),
 	}
@@ -555,7 +593,7 @@ func reflectEncoders(cdc codec.Marshaler) *MessageEncoders {
 
 // fromReflectRawMsg decodes msg.Data to an sdk.Msg using proto Any and json encoding.
 // this needs to be registered on the Encoders
-func fromReflectRawMsg(cdc codec.Marshaler) CustomEncoder {
+func fromReflectRawMsg(cdc codec.Codec) CustomEncoder {
 	return func(_sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
 		var custom reflectCustomMsg
 		err := json.Unmarshal(msg, &custom)
@@ -581,8 +619,8 @@ func fromReflectRawMsg(cdc codec.Marshaler) CustomEncoder {
 }
 
 type reflectCustomQuery struct {
-	Ping        *struct{} `json:"ping,omitempty"`
-	Capitalized *Text     `json:"capitalized,omitempty"`
+	Ping        *struct{}      `json:"ping,omitempty"`
+	Capitalized *testdata.Text `json:"capitalized,omitempty"`
 }
 
 // this is from the go code back to the contract (capitalized or ping)

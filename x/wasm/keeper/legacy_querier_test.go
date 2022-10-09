@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -17,18 +17,17 @@ import (
 )
 
 func TestLegacyQueryContractState(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
-	accKeeper, keeper, bankKeeper := keepers.AccountKeeper, keepers.WasmKeeper, keepers.BankKeeper
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
+	keeper := keepers.WasmKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-	topUp := sdk.NewCoins(sdk.NewInt64Coin("denom", 5000))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, deposit.Add(deposit...))
-	anyAddr := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, topUp)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit.Add(deposit...)...)
+	anyAddr := keepers.Faucet.NewFundedRandomAccount(ctx, sdk.NewInt64Coin("denom", 5000))
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
-	contractID, err := keepers.ContractKeeper.Create(ctx, creator, wasmCode, nil)
+	contractID, _, err := keepers.ContractKeeper.Create(ctx, creator, wasmCode, nil)
 	require.NoError(t, err)
 
 	_, _, bob := keyPubAddr()
@@ -155,18 +154,18 @@ func TestLegacyQueryContractState(t *testing.T) {
 }
 
 func TestLegacyQueryContractListByCodeOrdering(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
-	accKeeper, keeper, bankKeeper := keepers.AccountKeeper, keepers.WasmKeeper, keepers.BankKeeper
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
+	keeper := keepers.WasmKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 1000000))
 	topUp := sdk.NewCoins(sdk.NewInt64Coin("denom", 500))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, deposit)
-	anyAddr := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, topUp)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit.Add(deposit...)...)
+	anyAddr := keepers.Faucet.NewFundedRandomAccount(ctx, topUp...)
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
-	codeID, err := keepers.ContractKeeper.Create(ctx, creator, wasmCode, nil)
+	codeID, _, err := keepers.ContractKeeper.Create(ctx, creator, wasmCode, nil)
 	require.NoError(t, err)
 
 	_, _, bob := keyPubAddr()
@@ -219,12 +218,10 @@ func TestLegacyQueryContractListByCodeOrdering(t *testing.T) {
 }
 
 func TestLegacyQueryContractHistory(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	keeper := keepers.WasmKeeper
 
-	var (
-		otherAddr sdk.AccAddress = bytes.Repeat([]byte{0x2}, sdk.AddrLen)
-	)
+	var otherAddr sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
 
 	specs := map[string]struct {
 		srcQueryAddr sdk.AccAddress
@@ -315,7 +312,7 @@ func TestLegacyQueryContractHistory(t *testing.T) {
 }
 
 func TestLegacyQueryCodeList(t *testing.T) {
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	specs := map[string]struct {
@@ -332,7 +329,7 @@ func TestLegacyQueryCodeList(t *testing.T) {
 
 	for msg, spec := range specs {
 		t.Run(msg, func(t *testing.T) {
-			ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+			ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 			keeper := keepers.WasmKeeper
 
 			for _, codeID := range spec.codeIDs {

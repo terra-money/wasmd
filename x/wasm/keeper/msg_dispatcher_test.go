@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/tendermint/tendermint/libs/log"
+
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/assert"
@@ -99,10 +101,11 @@ func TestDispatchSubmessages(t *testing.T) {
 			},
 			expData:    []byte("myReplyData"),
 			expCommits: []bool{true},
-			expEvents: []sdk.Event{{
-				Type:       "myEvent",
-				Attributes: []abci.EventAttribute{{Key: []byte("foo"), Value: []byte("bar")}},
-			},
+			expEvents: []sdk.Event{
+				{
+					Type:       "myEvent",
+					Attributes: []abci.EventAttribute{{Key: []byte("foo"), Value: []byte("bar")}},
+				},
 				sdk.NewEvent("wasm-reply"),
 			},
 		},
@@ -293,8 +296,9 @@ func TestDispatchSubmessages(t *testing.T) {
 			expCommits: []bool{true},
 			expEvents:  []sdk.Event{sdk.NewEvent("execute", sdk.NewAttribute("foo", "bar"))},
 		},
-		"reply gets proper events": {
-			msgs: []wasmvmtypes.SubMsg{{ID: 1, ReplyOn: wasmvmtypes.ReplyAlways}},
+		"wasm reply gets proper events": {
+			// put fake wasmmsg in here to show where it comes from
+			msgs: []wasmvmtypes.SubMsg{{ID: 1, ReplyOn: wasmvmtypes.ReplyAlways, Msg: wasmvmtypes.CosmosMsg{Wasm: &wasmvmtypes.WasmMsg{}}}},
 			replyer: &mockReplyer{
 				replyFn: func(ctx sdk.Context, contractAddress sdk.AccAddress, reply wasmvmtypes.Reply) ([]byte, error) {
 					if reply.Result.Err != "" {
@@ -340,6 +344,48 @@ func TestDispatchSubmessages(t *testing.T) {
 				sdk.NewEvent("wasm-reply"),
 			},
 		},
+		"non-wasm reply events get filtered": {
+			// show events from a stargate message gets filtered out
+			msgs: []wasmvmtypes.SubMsg{{ID: 1, ReplyOn: wasmvmtypes.ReplyAlways, Msg: wasmvmtypes.CosmosMsg{Stargate: &wasmvmtypes.StargateMsg{}}}},
+			replyer: &mockReplyer{
+				replyFn: func(ctx sdk.Context, contractAddress sdk.AccAddress, reply wasmvmtypes.Reply) ([]byte, error) {
+					if reply.Result.Err != "" {
+						return nil, errors.New(reply.Result.Err)
+					}
+					res := reply.Result.Ok
+
+					// ensure the input events are what we expect
+					// I didn't use require.Equal() to act more like a contract... but maybe that would be better
+					if len(res.Events) != 0 {
+						return nil, errors.New("events not filtered out")
+					}
+
+					// let's add a custom event here and see if it makes it out
+					ctx.EventManager().EmitEvent(sdk.NewEvent("stargate-reply"))
+
+					// update data from what we got in
+					return res.Data, nil
+				},
+			},
+			msgHandler: &wasmtesting.MockMessageHandler{
+				DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
+					events = []sdk.Event{
+						// this is filtered out
+						sdk.NewEvent("message", sdk.NewAttribute("stargate", "something-something")),
+						// we still emit this to the client, but not the contract
+						sdk.NewEvent("non-determinstic"),
+					}
+					return events, [][]byte{[]byte("subData")}, nil
+				},
+			},
+			expData:    []byte("subData"),
+			expCommits: []bool{true},
+			expEvents: []sdk.Event{
+				sdk.NewEvent("non-determinstic"),
+				// the event from reply is also exposed
+				sdk.NewEvent("stargate-reply"),
+			},
+		},
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
@@ -347,7 +393,7 @@ func TestDispatchSubmessages(t *testing.T) {
 			em := sdk.NewEventManager()
 			ctx := sdk.Context{}.WithMultiStore(&mockStore).
 				WithGasMeter(sdk.NewGasMeter(100)).
-				WithEventManager(em)
+				WithEventManager(em).WithLogger(log.TestingLogger())
 			d := NewMessageDispatcher(spec.msgHandler, spec.replyer)
 			gotData, gotErr := d.DispatchSubmessages(ctx, RandomAccountAddress(t), "any_port", spec.msgs)
 			if spec.expErr {

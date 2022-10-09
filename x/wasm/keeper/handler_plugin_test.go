@@ -11,9 +11,9 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	channeltypes "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
-	ibcexported "github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	ibcexported "github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -27,13 +27,15 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 	alwaysUnknownMsgHandler := &wasmtesting.MockMessageHandler{
 		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
 			return nil, nil, types.ErrUnknownMsg
-		}}
+		},
+	}
 
 	assertNotCalledHandler := &wasmtesting.MockMessageHandler{
 		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
 			t.Fatal("not expected to be called")
 			return
-		}}
+		},
+	}
 
 	myMsg := wasmvmtypes.CosmosMsg{Custom: []byte(`{}`)}
 	specs := map[string]struct {
@@ -54,15 +56,18 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 			handlers: []Messenger{&wasmtesting.MockMessageHandler{
 				DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
 					return nil, nil, types.ErrInvalidMsg
-				}}, assertNotCalledHandler},
+				},
+			}, assertNotCalledHandler},
 			expErr: types.ErrInvalidMsg,
 		},
 		"return events when handle": {
-			handlers: []Messenger{&wasmtesting.MockMessageHandler{
-				DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
-					_, data, _ = capturingHandler.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
-					return []sdk.Event{sdk.NewEvent("myEvent", sdk.NewAttribute("foo", "bar"))}, data, nil
-				}},
+			handlers: []Messenger{
+				&wasmtesting.MockMessageHandler{
+					DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
+						_, data, _ = capturingHandler.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
+						return []sdk.Event{sdk.NewEvent("myEvent", sdk.NewAttribute("foo", "bar"))}, data, nil
+					},
+				},
 			},
 			expEvents: []sdk.Event{sdk.NewEvent("myEvent", sdk.NewAttribute("foo", "bar"))},
 		},
@@ -100,22 +105,26 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 	}
 
 	var gotMsg []sdk.Msg
-	capturingRouteFn := func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
-		gotMsg = append(gotMsg, msg)
-		return &myRouterResult, nil
-	}
-
+	capturingMessageRouter := wasmtesting.MessageRouterFunc(func(msg sdk.Msg) baseapp.MsgServiceHandler {
+		return func(ctx sdk.Context, req sdk.Msg) (*sdk.Result, error) {
+			gotMsg = append(gotMsg, msg)
+			return &myRouterResult, nil
+		}
+	})
+	noRouteMessageRouter := wasmtesting.MessageRouterFunc(func(msg sdk.Msg) baseapp.MsgServiceHandler {
+		return nil
+	})
 	myContractAddr := RandomAccountAddress(t)
 	myContractMessage := wasmvmtypes.CosmosMsg{Custom: []byte("{}")}
 
 	specs := map[string]struct {
-		srcRoute         sdk.Route
+		srcRoute         MessageRouter
 		srcEncoder       CustomEncoder
 		expErr           *sdkerrors.Error
 		expMsgDispatched int
 	}{
 		"all good": {
-			srcRoute: sdk.NewRoute(types.RouterKey, capturingRouteFn),
+			srcRoute: capturingMessageRouter,
 			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
 				myMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
@@ -127,7 +136,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 			expMsgDispatched: 1,
 		},
 		"multiple output msgs": {
-			srcRoute: sdk.NewRoute(types.RouterKey, capturingRouteFn),
+			srcRoute: capturingMessageRouter,
 			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
 				first := &types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
@@ -144,7 +153,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 			expMsgDispatched: 2,
 		},
 		"invalid sdk message rejected": {
-			srcRoute: sdk.NewRoute(types.RouterKey, capturingRouteFn),
+			srcRoute: capturingMessageRouter,
 			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
 				invalidMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
@@ -156,7 +165,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 			expErr: types.ErrInvalid,
 		},
 		"invalid sender rejected": {
-			srcRoute: sdk.NewRoute(types.RouterKey, capturingRouteFn),
+			srcRoute: capturingMessageRouter,
 			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
 				invalidMsg := types.MsgExecuteContract{
 					Sender:   RandomBech32AccountAddress(t),
@@ -168,7 +177,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 			expErr: sdkerrors.ErrUnauthorized,
 		},
 		"unroutable message rejected": {
-			srcRoute: sdk.NewRoute("nothing", capturingRouteFn),
+			srcRoute: noRouteMessageRouter,
 			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
 				myMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
@@ -180,9 +189,9 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 			expErr: sdkerrors.ErrUnknownRequest,
 		},
 		"encoding error passed": {
-			srcRoute: sdk.NewRoute("nothing", capturingRouteFn),
+			srcRoute: capturingMessageRouter,
 			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
-				myErr := types.ErrUnpinContractFailed
+				myErr := types.ErrUnpinContractFailed // any error that is not used
 				return nil, myErr
 			},
 			expErr: types.ErrUnpinContractFailed,
@@ -191,12 +200,10 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
 			gotMsg = make([]sdk.Msg, 0)
-			router := baseapp.NewRouter()
-			router.AddRoute(spec.srcRoute)
 
 			// when
 			ctx := sdk.Context{}
-			h := NewSDKMessageHandler(router, MessageEncoders{Custom: spec.srcEncoder})
+			h := NewSDKMessageHandler(spec.srcRoute, MessageEncoders{Custom: spec.srcEncoder})
 			gotEvents, gotData, gotErr := h.DispatchMsg(ctx, myContractAddr, "myPort", myContractMessage)
 
 			// then
@@ -229,7 +236,8 @@ func TestIBCRawPacketHandler(t *testing.T) {
 				Counterparty: channeltypes.NewCounterparty(
 					"other-port",
 					"other-channel-1",
-				)}, true
+				),
+			}, true
 		},
 		SendPacketFn: func(ctx sdk.Context, channelCap *capabilitytypes.Capability, packet ibcexported.PacketI) error {
 			capturedPacket = packet
@@ -276,7 +284,8 @@ func TestIBCRawPacketHandler(t *testing.T) {
 			chanKeeper: &wasmtesting.MockChannelKeeper{
 				GetNextSequenceSendFn: func(ctx sdk.Context, portID, channelID string) (uint64, bool) {
 					return 0, false
-				}},
+				},
+			},
 			expErr: channeltypes.ErrSequenceSendNotFound,
 		},
 		"capability not found returns error": {
@@ -289,7 +298,8 @@ func TestIBCRawPacketHandler(t *testing.T) {
 			capKeeper: wasmtesting.MockCapabilityKeeper{
 				GetCapabilityFn: func(ctx sdk.Context, name string) (*capabilitytypes.Capability, bool) {
 					return nil, false
-				}},
+				},
+			},
 			expErr: channeltypes.ErrChannelCapabilityNotFound,
 		},
 	}
@@ -316,11 +326,14 @@ func TestBurnCoinMessageHandlerIntegration(t *testing.T) {
 	// module permissions are set correct and no other handler
 	// picks the message in the default handler chain
 	ctx, keepers := CreateDefaultTestInput(t)
+	// set some supply
+	keepers.Faucet.NewFundedRandomAccount(ctx, sdk.NewCoin("denom", sdk.NewInt(10_000_000)))
 	k := keepers.WasmKeeper
+
+	example := InstantiateHackatomExampleContract(t, ctx, keepers) // with deposit of 100 stake
 
 	before, err := keepers.BankKeeper.TotalSupply(sdk.WrapSDKContext(ctx), &banktypes.QueryTotalSupplyRequest{})
 	require.NoError(t, err)
-	example := InstantiateHackatomExampleContract(t, ctx, keepers) // with deposit of 100 stake
 
 	specs := map[string]struct {
 		msg    wasmvmtypes.BurnMsg
@@ -367,9 +380,10 @@ func TestBurnCoinMessageHandlerIntegration(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ = parentCtx.CacheContext()
 			k.wasmVM = &wasmtesting.MockWasmer{ExecuteFn: func(codeID wasmvm.Checksum, env wasmvmtypes.Env, info wasmvmtypes.MessageInfo, executeMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error) {
-				return &wasmvmtypes.Response{Messages: []wasmvmtypes.SubMsg{
-					{Msg: wasmvmtypes.CosmosMsg{Bank: &wasmvmtypes.BankMsg{Burn: &spec.msg}}, ReplyOn: wasmvmtypes.ReplyNever},
-				},
+				return &wasmvmtypes.Response{
+					Messages: []wasmvmtypes.SubMsg{
+						{Msg: wasmvmtypes.CosmosMsg{Bank: &wasmvmtypes.BankMsg{Burn: &spec.msg}}, ReplyOn: wasmvmtypes.ReplyNever},
+					},
 				}, 0, nil
 			}}
 

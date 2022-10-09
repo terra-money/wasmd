@@ -7,15 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strconv"
 
+	wasmvm "github.com/CosmWasm/wasmvm"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 
+	"github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
@@ -31,12 +33,77 @@ func GetQueryCmd() *cobra.Command {
 		GetCmdListCode(),
 		GetCmdListContractByCode(),
 		GetCmdQueryCode(),
+		GetCmdQueryCodeInfo(),
 		GetCmdGetContractInfo(),
 		GetCmdGetContractHistory(),
 		GetCmdGetContractState(),
 		GetCmdListPinnedCode(),
+		GetCmdLibVersion(),
+		GetCmdQueryParams(),
+		GetCmdBuildAddress(),
 	)
 	return queryCmd
+}
+
+// GetCmdLibVersion gets current libwasmvm version.
+func GetCmdLibVersion() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "libwasmvm-version",
+		Short:   "Get libwasmvm version",
+		Long:    "Get libwasmvm version",
+		Aliases: []string{"lib-version"},
+		Args:    cobra.ExactArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			version, err := wasmvm.LibwasmvmVersion()
+			if err != nil {
+				return fmt.Errorf("error retrieving libwasmvm version: %w", err)
+			}
+			fmt.Println(version)
+			return nil
+		},
+	}
+	return cmd
+}
+
+// GetCmdBuildAddress build a contract address
+func GetCmdBuildAddress() *cobra.Command {
+	decoder := newArgDecoder(hex.DecodeString)
+	cmd := &cobra.Command{
+		Use:     "build-address [code-hash] [creator-address] [salt-hex-encoded] [json_encoded_init_args (required when set as fixed)]",
+		Short:   "build contract address",
+		Aliases: []string{"address"},
+		Args:    cobra.RangeArgs(3, 4),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			codeHash, err := hex.DecodeString(args[0])
+			if err != nil {
+				return fmt.Errorf("code-hash: %s", err)
+			}
+			creator, err := sdk.AccAddressFromBech32(args[1])
+			if err != nil {
+				return fmt.Errorf("creator: %s", err)
+			}
+			salt, err := hex.DecodeString(args[2])
+			switch {
+			case err != nil:
+				return fmt.Errorf("salt: %s", err)
+			case len(salt) == 0:
+				return errors.New("empty salt")
+			}
+
+			if len(args) == 3 {
+				cmd.Println(keeper.BuildContractAddressPredictable(codeHash, creator, salt, []byte{}).String())
+				return nil
+			}
+			msg := types.RawContractMessage(args[3])
+			if err := msg.ValidateBasic(); err != nil {
+				return fmt.Errorf("init message: %s", err)
+			}
+			cmd.Println(keeper.BuildContractAddressPredictable(codeHash, creator, salt, msg).String())
+			return nil
+		},
+	}
+	decoder.RegisterFlags(cmd.PersistentFlags(), "salt")
+	return cmd
 }
 
 // GetCmdListCode lists all wasm code uploaded
@@ -92,6 +159,9 @@ func GetCmdListContractByCode() *cobra.Command {
 			codeID, err := strconv.ParseUint(args[0], 10, 64)
 			if err != nil {
 				return err
+			}
+			if codeID == 0 {
+				return errors.New("empty code id")
 			}
 
 			pageReq, err := client.ReadPageRequest(withPageKeyDecoded(cmd.Flags()))
@@ -151,7 +221,46 @@ func GetCmdQueryCode() *cobra.Command {
 			}
 
 			fmt.Printf("Downloading wasm code to %s\n", args[1])
-			return ioutil.WriteFile(args[1], res.Data, 0600)
+			return os.WriteFile(args[1], res.Data, 0o600)
+		},
+	}
+	flags.AddQueryFlagsToCmd(cmd)
+	return cmd
+}
+
+// GetCmdQueryCodeInfo returns the code info for a given code id
+func GetCmdQueryCodeInfo() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "code-info [code_id]",
+		Short: "Prints out metadata of a code id",
+		Long:  "Prints out metadata of a code id",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			codeID, err := strconv.ParseUint(args[0], 10, 64)
+			if err != nil {
+				return err
+			}
+
+			queryClient := types.NewQueryClient(clientCtx)
+			res, err := queryClient.Code(
+				context.Background(),
+				&types.QueryCodeRequest{
+					CodeId: codeID,
+				},
+			)
+			if err != nil {
+				return err
+			}
+			if res.CodeInfoResponse == nil {
+				return fmt.Errorf("contract not found")
+			}
+
+			return clientCtx.PrintProto(res.CodeInfoResponse)
 		},
 	}
 	flags.AddQueryFlagsToCmd(cmd)
@@ -167,7 +276,6 @@ func GetCmdGetContractInfo() *cobra.Command {
 		Aliases: []string{"meta", "c"},
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
 				return err
@@ -210,7 +318,6 @@ func GetCmdGetContractState() *cobra.Command {
 		GetCmdGetContractStateSmart(),
 	)
 	return cmd
-
 }
 
 func GetCmdGetContractStateAll() *cobra.Command {
@@ -433,7 +540,7 @@ func newArgDecoder(def func(string) ([]byte, error)) *argumentDecoder {
 
 func (a *argumentDecoder) RegisterFlags(f *flag.FlagSet, argName string) {
 	f.BoolVar(&a.asciiF, "ascii", false, "ascii encoded "+argName)
-	f.BoolVar(&a.hexF, "hex", false, "hex encoded  "+argName)
+	f.BoolVar(&a.hexF, "hex", false, "hex encoded "+argName)
 	f.BoolVar(&a.b64F, "b64", false, "base64 encoded "+argName)
 }
 
@@ -479,4 +586,33 @@ func withPageKeyDecoded(flagSet *flag.FlagSet) *flag.FlagSet {
 		panic(err.Error())
 	}
 	return flagSet
+}
+
+// GetCmdQueryParams implements a command to return the current wasm
+// parameters.
+func GetCmdQueryParams() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "params",
+		Short: "Query the current wasm parameters",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			params := &types.QueryParamsRequest{}
+			res, err := queryClient.Params(cmd.Context(), params)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(&res.Params)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
 }

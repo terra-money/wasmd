@@ -2,11 +2,13 @@ package keeper
 
 import (
 	"bytes"
-	"crypto/sha256"
+	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -18,15 +20,25 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	vestingexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/tendermint/tendermint/libs/log"
 
+	"github.com/CosmWasm/wasmd/x/wasm/ioutils"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
 // contractMemoryLimit is the memory limit of each contract execution (in MiB)
 // constant value so all nodes run with the same limit.
 const contractMemoryLimit = 32
+
+type contextKey int
+
+const (
+	// private type creates an interface key for Context that cannot be accessed by any other package
+	contextKeyQueryStackSize contextKey = iota
+)
 
 // Option is an extension point to instantiate keeper with non default values
 type Option interface {
@@ -44,6 +56,15 @@ type CoinTransferrer interface {
 	TransferCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
 }
 
+// AccountPruner handles the balances and data cleanup for accounts that are pruned on contract instantiate.
+// This is an extension point to attach custom logic
+type AccountPruner interface {
+	// CleanupExistingAccount handles the cleanup process for balances and data of the given account. The persisted account
+	// type is already reset to base account at this stage.
+	// The method returns true when the account address can be reused. Unsupported account types are rejected by returning false
+	CleanupExistingAccount(ctx sdk.Context, existingAccount authtypes.AccountI) (handled bool, err error)
+}
+
 // WasmVMResponseHandler is an extension point to handles the response data returned by a contract call.
 type WasmVMResponseHandler interface {
 	// Handle processes the data returned by a contract invocation.
@@ -56,10 +77,16 @@ type WasmVMResponseHandler interface {
 	) ([]byte, error)
 }
 
+// list of account types that are accepted for wasm contracts. Chains importing wasmd
+// can overwrite this list with the WithAcceptedAccountTypesOnContractInstantiation option.
+var defaultAcceptedAccountTypes = map[reflect.Type]struct{}{
+	reflect.TypeOf(&authtypes.BaseAccount{}): {},
+}
+
 // Keeper will have a reference to Wasmer with it's own data directory.
 type Keeper struct {
 	storeKey              sdk.StoreKey
-	cdc                   codec.Marshaler
+	cdc                   codec.Codec
 	accountKeeper         types.AccountKeeper
 	bank                  CoinTransferrer
 	portKeeper            types.PortKeeper
@@ -69,15 +96,18 @@ type Keeper struct {
 	wasmVMResponseHandler WasmVMResponseHandler
 	messenger             Messenger
 	// queryGasLimit is the max wasmvm gas that can be spent on executing a query with a contract
-	queryGasLimit uint64
-	paramSpace    paramtypes.Subspace
-	gasRegister   GasRegister
+	queryGasLimit        uint64
+	paramSpace           paramtypes.Subspace
+	gasRegister          GasRegister
+	maxQueryStackSize    uint32
+	acceptedAccountTypes map[reflect.Type]struct{}
+	accountPruner        AccountPruner
 }
 
 // NewKeeper creates a new contract Keeper instance
 // If customEncoders is non-nil, we can use this to override some of the message handler, especially custom
 func NewKeeper(
-	cdc codec.Marshaler,
+	cdc codec.Codec,
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
 	accountKeeper types.AccountKeeper,
@@ -88,14 +118,14 @@ func NewKeeper(
 	portKeeper types.PortKeeper,
 	capabilityKeeper types.CapabilityKeeper,
 	portSource types.ICS20TransferPortSource,
-	router sdk.Router,
+	router MessageRouter,
 	queryRouter GRPCQueryRouter,
 	homeDir string,
 	wasmConfig types.WasmConfig,
-	supportedFeatures string,
+	availableCapabilities string,
 	opts ...Option,
 ) Keeper {
-	wasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
+	wasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), availableCapabilities, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
 	if err != nil {
 		panic(err)
 	}
@@ -105,17 +135,20 @@ func NewKeeper(
 	}
 
 	keeper := &Keeper{
-		storeKey:         storeKey,
-		cdc:              cdc,
-		wasmVM:           wasmer,
-		accountKeeper:    accountKeeper,
-		bank:             NewBankCoinTransferrer(bankKeeper),
-		portKeeper:       portKeeper,
-		capabilityKeeper: capabilityKeeper,
-		messenger:        NewDefaultMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, cdc, portSource),
-		queryGasLimit:    wasmConfig.SmartQueryGasLimit,
-		paramSpace:       paramSpace,
-		gasRegister:      NewDefaultWasmGasRegister(),
+		storeKey:             storeKey,
+		cdc:                  cdc,
+		wasmVM:               wasmer,
+		accountKeeper:        accountKeeper,
+		bank:                 NewBankCoinTransferrer(bankKeeper),
+		accountPruner:        NewVestingCoinBurner(bankKeeper),
+		portKeeper:           portKeeper,
+		capabilityKeeper:     capabilityKeeper,
+		messenger:            NewDefaultMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, cdc, portSource),
+		queryGasLimit:        wasmConfig.SmartQueryGasLimit,
+		paramSpace:           paramSpace,
+		gasRegister:          NewDefaultWasmGasRegister(),
+		maxQueryStackSize:    types.DefaultMaxQueryStackSize,
+		acceptedAccountTypes: defaultAcceptedAccountTypes,
 	}
 	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, channelKeeper, queryRouter, keeper)
 	for _, o := range opts {
@@ -138,12 +171,6 @@ func (k Keeper) getInstantiateAccessConfig(ctx sdk.Context) types.AccessType {
 	return a
 }
 
-func (k Keeper) GetMaxWasmCodeSize(ctx sdk.Context) uint64 {
-	var a uint64
-	k.paramSpace.Get(ctx, types.ParamStoreKeyMaxWasmCodeSize, &a)
-	return a
-}
-
 // GetParams returns the total set of wasm parameters.
 func (k Keeper) GetParams(ctx sdk.Context) types.Params {
 	var params types.Params
@@ -151,63 +178,75 @@ func (k Keeper) GetParams(ctx sdk.Context) types.Params {
 	return params
 }
 
-func (k Keeper) setParams(ctx sdk.Context, ps types.Params) {
+func (k Keeper) SetParams(ctx sdk.Context, ps types.Params) {
 	k.paramSpace.SetParamSet(ctx, &ps)
 }
 
-func (k Keeper) create(ctx sdk.Context, creator sdk.AccAddress, wasmCode []byte, instantiateAccess *types.AccessConfig, authZ AuthorizationPolicy) (codeID uint64, err error) {
+func (k Keeper) create(ctx sdk.Context, creator sdk.AccAddress, wasmCode []byte, instantiateAccess *types.AccessConfig, authZ AuthorizationPolicy) (codeID uint64, checksum []byte, err error) {
 	if creator == nil {
-		return 0, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "cannot be nil")
+		return 0, checksum, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "cannot be nil")
 	}
 
 	if !authZ.CanCreateCode(k.getUploadAccessConfig(ctx), creator) {
-		return 0, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "can not create code")
+		return 0, checksum, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "can not create code")
 	}
-	wasmCode, err = uncompress(wasmCode, k.GetMaxWasmCodeSize(ctx))
-	if err != nil {
-		return 0, sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+	// figure out proper instantiate access
+	defaultAccessConfig := k.getInstantiateAccessConfig(ctx).With(creator)
+	if instantiateAccess == nil {
+		instantiateAccess = &defaultAccessConfig
+	} else if !instantiateAccess.IsSubset(defaultAccessConfig) {
+		// we enforce this must be subset of default upload access
+		return 0, checksum, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "instantiate access must be subset of default upload access")
 	}
-	ctx.GasMeter().ConsumeGas(k.gasRegister.CompileCosts(len(wasmCode)), "Compiling WASM Bytecode")
 
-	checksum, err := k.wasmVM.Create(wasmCode)
+	if ioutils.IsGzip(wasmCode) {
+		ctx.GasMeter().ConsumeGas(k.gasRegister.UncompressCosts(len(wasmCode)), "Uncompress gzip bytecode")
+		wasmCode, err = ioutils.Uncompress(wasmCode, uint64(types.MaxWasmSize))
+		if err != nil {
+			return 0, checksum, sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+		}
+	}
+
+	ctx.GasMeter().ConsumeGas(k.gasRegister.CompileCosts(len(wasmCode)), "Compiling wasm bytecode")
+	checksum, err = k.wasmVM.Create(wasmCode)
 	if err != nil {
-		return 0, sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+		return 0, checksum, sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
 	}
 	report, err := k.wasmVM.AnalyzeCode(checksum)
 	if err != nil {
-		return 0, sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+		return 0, checksum, sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
 	}
 	codeID = k.autoIncrementID(ctx, types.KeyLastCodeID)
-	k.Logger(ctx).Debug("storing new contract", "features", report.RequiredFeatures, "code_id", codeID)
-	if instantiateAccess == nil {
-		defaultAccessConfig := k.getInstantiateAccessConfig(ctx).With(creator)
-		instantiateAccess = &defaultAccessConfig
-	}
+	k.Logger(ctx).Debug("storing new contract", "capabilities", report.RequiredCapabilities, "code_id", codeID)
 	codeInfo := types.NewCodeInfo(checksum, creator, *instantiateAccess)
 	k.storeCodeInfo(ctx, codeID, codeInfo)
 
 	evt := sdk.NewEvent(
 		types.EventTypeStoreCode,
-		sdk.NewAttribute(types.AttributeKeyCodeID, strconv.FormatUint(codeID, 10)),
+		sdk.NewAttribute(types.AttributeKeyChecksum, hex.EncodeToString(checksum)),
+		sdk.NewAttribute(types.AttributeKeyCodeID, strconv.FormatUint(codeID, 10)), // last element to be compatible with scripts
 	)
-	for _, f := range strings.Split(report.RequiredFeatures, ",") {
-		evt.AppendAttributes(sdk.NewAttribute(types.AttributeKeyFeature, strings.TrimSpace(f)))
+	for _, f := range strings.Split(report.RequiredCapabilities, ",") {
+		evt.AppendAttributes(sdk.NewAttribute(types.AttributeKeyRequiredCapability, strings.TrimSpace(f)))
 	}
 	ctx.EventManager().EmitEvent(evt)
 
-	return codeID, nil
+	return codeID, checksum, nil
 }
 
 func (k Keeper) storeCodeInfo(ctx sdk.Context, codeID uint64, codeInfo types.CodeInfo) {
 	store := ctx.KVStore(k.storeKey)
 	// 0x01 | codeID (uint64) -> ContractInfo
-	store.Set(types.GetCodeKey(codeID), k.cdc.MustMarshalBinaryBare(&codeInfo))
+	store.Set(types.GetCodeKey(codeID), k.cdc.MustMarshal(&codeInfo))
 }
 
 func (k Keeper) importCode(ctx sdk.Context, codeID uint64, codeInfo types.CodeInfo, wasmCode []byte) error {
-	wasmCode, err := uncompress(wasmCode, k.GetMaxWasmCodeSize(ctx))
-	if err != nil {
-		return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+	if ioutils.IsGzip(wasmCode) {
+		var err error
+		wasmCode, err = ioutils.Uncompress(wasmCode, uint64(types.MaxWasmSize))
+		if err != nil {
+			return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+		}
 	}
 	newCodeHash, err := k.wasmVM.Create(wasmCode)
 	if err != nil {
@@ -223,47 +262,79 @@ func (k Keeper) importCode(ctx sdk.Context, codeID uint64, codeInfo types.CodeIn
 		return sdkerrors.Wrapf(types.ErrDuplicate, "duplicate code: %d", codeID)
 	}
 	// 0x01 | codeID (uint64) -> ContractInfo
-	store.Set(key, k.cdc.MustMarshalBinaryBare(&codeInfo))
+	store.Set(key, k.cdc.MustMarshal(&codeInfo))
 	return nil
 }
 
-func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins, authZ AuthorizationPolicy) (sdk.AccAddress, []byte, error) {
+func (k Keeper) instantiate(
+	ctx sdk.Context,
+	codeID uint64,
+	creator, admin sdk.AccAddress,
+	initMsg []byte,
+	label string,
+	deposit sdk.Coins,
+	addressGenerator AddressGenerator,
+	authPolicy AuthorizationPolicy,
+) (sdk.AccAddress, []byte, error) {
 	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "instantiate")
 
+	if creator == nil {
+		return nil, nil, types.ErrEmpty.Wrap("creator")
+	}
 	instanceCosts := k.gasRegister.NewContractInstanceCosts(k.IsPinnedCode(ctx, codeID), len(initMsg))
 	ctx.GasMeter().ConsumeGas(instanceCosts, "Loading CosmWasm module: instantiate")
 
-	// create contract address
-	contractAddress := k.generateContractAddress(ctx, codeID)
-	existingAcct := k.accountKeeper.GetAccount(ctx, contractAddress)
-	if existingAcct != nil {
-		return nil, nil, sdkerrors.Wrap(types.ErrAccountExists, existingAcct.GetAddress().String())
+	// get contact info
+	codeInfo := k.GetCodeInfo(ctx, codeID)
+	if codeInfo == nil {
+		return nil, nil, sdkerrors.Wrap(types.ErrNotFound, "code")
+	}
+	if !authPolicy.CanInstantiateContract(codeInfo.InstantiateConfig, creator) {
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "can not instantiate")
 	}
 
+	contractAddress := addressGenerator(ctx, codeID, codeInfo.CodeHash)
+	if k.HasContractInfo(ctx, contractAddress) {
+		return nil, nil, types.ErrDuplicate.Wrap("instance with this code id, sender and label exists: try a different label")
+	}
+
+	// check account
+	// every cosmos module can define custom account types when needed. The cosmos-sdk comes with extension points
+	// to support this and a set of base and vesting account types that we integrated in our default lists.
+	// But not all account types of other modules are known or may make sense for contracts, therefore we kept this
+	// decision logic also very flexible and extendable. We provide new options to overwrite the default settings via WithAcceptedAccountTypesOnContractInstantiation and
+	// WithPruneAccountTypesOnContractInstantiation as constructor arguments
+	existingAcct := k.accountKeeper.GetAccount(ctx, contractAddress)
+	if existingAcct != nil {
+		if existingAcct.GetSequence() != 0 || existingAcct.GetPubKey() != nil {
+			return nil, nil, types.ErrAccountExists.Wrap("address is claimed by external account")
+		}
+		if _, accept := k.acceptedAccountTypes[reflect.TypeOf(existingAcct)]; accept {
+			// keep account and balance as it is
+			k.Logger(ctx).Info("instantiate contract with existing account", "address", contractAddress.String())
+		} else {
+			// consider an account in the wasmd namespace spam and overwrite it.
+			k.Logger(ctx).Info("pruning existing account for contract instantiation", "address", contractAddress.String())
+			contractAccount := k.accountKeeper.NewAccountWithAddress(ctx, contractAddress)
+			k.accountKeeper.SetAccount(ctx, contractAccount)
+			// also handle balance to not open cases where these accounts are abused and become liquid
+			switch handled, err := k.accountPruner.CleanupExistingAccount(ctx, existingAcct); {
+			case err != nil:
+				return nil, nil, sdkerrors.Wrap(err, "prune balance")
+			case !handled:
+				return nil, nil, types.ErrAccountExists.Wrap("address is claimed by external account")
+			}
+		}
+	} else {
+		// create an empty account (so we don't have issues later)
+		contractAccount := k.accountKeeper.NewAccountWithAddress(ctx, contractAddress)
+		k.accountKeeper.SetAccount(ctx, contractAccount)
+	}
 	// deposit initial contract funds
 	if !deposit.IsZero() {
 		if err := k.bank.TransferCoins(ctx, creator, contractAddress, deposit); err != nil {
 			return nil, nil, err
 		}
-
-	} else {
-		// create an empty account (so we don't have issues later)
-		// TODO: can we remove this?
-		contractAccount := k.accountKeeper.NewAccountWithAddress(ctx, contractAddress)
-		k.accountKeeper.SetAccount(ctx, contractAccount)
-	}
-
-	// get contact info
-	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.GetCodeKey(codeID))
-	if bz == nil {
-		return nil, nil, sdkerrors.Wrap(types.ErrNotFound, "code")
-	}
-	var codeInfo types.CodeInfo
-	k.cdc.MustUnmarshalBinaryBare(bz, &codeInfo)
-
-	if !authZ.CanInstantiateContract(codeInfo.InstantiateConfig, creator) {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "can not instantiate")
 	}
 
 	// prepare params for contract instantiate call
@@ -271,7 +342,7 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 	info := types.NewInfo(creator, deposit)
 
 	// create prefixed data store
-	// 0x03 | BuildContractAddress (sdk.AccAddress)
+	// 0x03 | BuildContractAddressClassic (sdk.AccAddress)
 	prefixStoreKey := types.GetContractStorePrefix(contractAddress)
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), prefixStoreKey)
 
@@ -385,6 +456,10 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "unknown code")
 	}
 
+	if !authZ.CanInstantiateContract(newCodeInfo.InstantiateConfig, caller) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "to use new code")
+	}
+
 	// check for IBC flag
 	switch report, err := k.wasmVM.AnalyzeCode(newCodeInfo.CodeHash); {
 	case err != nil:
@@ -437,9 +512,9 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 	return data, nil
 }
 
-// Sudo allows priviledged access to a contract. This can never be called by governance or external tx, but only by
-// another native Go module directly. Thus, the keeper doesn't place any access controls on it, that is the
-// responsibility or the app developer (who passes the wasm.Keeper in app.go)
+// Sudo allows priviledged access to a contract. This can never be called by an external tx, but only by
+// another native Go module directly, or on-chain governance (if sudo proposals are enabled). Thus, the keeper doesn't
+// place any access controls on it, that is the responsibility or the app developer (who passes the wasm.Keeper in app.go)
 func (k Keeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error) {
 	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "sudo")
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
@@ -490,6 +565,7 @@ func (k Keeper) reply(ctx sdk.Context, contractAddress sdk.AccAddress, reply was
 	// prepare querier
 	querier := k.newQueryHandler(ctx, contractAddress)
 	gas := k.runtimeGasForContract(ctx)
+
 	res, gasUsed, execErr := k.wasmVM.Reply(codeInfo.CodeHash, env, reply, prefixStore, cosmwasmAPI, querier, k.gasMeter(ctx), gas, costJSONDeserialization)
 	k.consumeRuntimeGas(ctx, gasUsed)
 	if execErr != nil {
@@ -523,7 +599,10 @@ func (k Keeper) removeFromContractCodeSecondaryIndex(ctx sdk.Context, contractAd
 // IterateContractsByCode iterates over all contracts with given codeID ASC on code update time.
 func (k Keeper) IterateContractsByCode(ctx sdk.Context, codeID uint64, cb func(address sdk.AccAddress) bool) {
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.GetContractByCodeIDSecondaryIndexPrefix(codeID))
-	for iter := prefixStore.Iterator(nil, nil); iter.Valid(); iter.Next() {
+	iter := prefixStore.Iterator(nil, nil)
+	defer iter.Close()
+
+	for ; iter.Valid(); iter.Next() {
 		key := iter.Key()
 		if cb(key[types.AbsoluteTxPositionLen:]) {
 			return
@@ -549,14 +628,17 @@ func (k Keeper) appendToContractHistory(ctx sdk.Context, contractAddr sdk.AccAdd
 	// find last element position
 	var pos uint64
 	prefixStore := prefix.NewStore(store, types.GetContractCodeHistoryElementPrefix(contractAddr))
-	if iter := prefixStore.ReverseIterator(nil, nil); iter.Valid() {
-		pos = sdk.BigEndianToUint64(iter.Value())
+	iter := prefixStore.ReverseIterator(nil, nil)
+	defer iter.Close()
+
+	if iter.Valid() {
+		pos = sdk.BigEndianToUint64(iter.Key())
 	}
 	// then store with incrementing position
 	for _, e := range newEntries {
 		pos++
 		key := types.GetContractCodeHistoryElementKey(contractAddr, pos)
-		store.Set(key, k.cdc.MustMarshalBinaryBare(&e)) //nolint:gosec
+		store.Set(key, k.cdc.MustMarshal(&e)) //nolint:gosec
 	}
 }
 
@@ -564,9 +646,11 @@ func (k Keeper) GetContractHistory(ctx sdk.Context, contractAddr sdk.AccAddress)
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.GetContractCodeHistoryElementPrefix(contractAddr))
 	r := make([]types.ContractCodeHistoryEntry, 0)
 	iter := prefixStore.Iterator(nil, nil)
+	defer iter.Close()
+
 	for ; iter.Valid(); iter.Next() {
 		var e types.ContractCodeHistoryEntry
-		k.cdc.MustUnmarshalBinaryBare(iter.Value(), &e)
+		k.cdc.MustUnmarshal(iter.Value(), &e)
 		r = append(r, e)
 	}
 	return r
@@ -576,18 +660,27 @@ func (k Keeper) GetContractHistory(ctx sdk.Context, contractAddr sdk.AccAddress)
 func (k Keeper) getLastContractHistoryEntry(ctx sdk.Context, contractAddr sdk.AccAddress) types.ContractCodeHistoryEntry {
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.GetContractCodeHistoryElementPrefix(contractAddr))
 	iter := prefixStore.ReverseIterator(nil, nil)
+	defer iter.Close()
+
 	var r types.ContractCodeHistoryEntry
 	if !iter.Valid() {
 		// all contracts have a history
 		panic(fmt.Sprintf("no history for %s", contractAddr.String()))
 	}
-	k.cdc.MustUnmarshalBinaryBare(iter.Value(), &r)
+	k.cdc.MustUnmarshal(iter.Value(), &r)
 	return r
 }
 
 // QuerySmart queries the smart contract itself.
 func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
 	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "query-smart")
+
+	// checks and increase query stack size
+	ctx, err := checkAndIncreaseQueryStackSize(ctx, k.maxQueryStackSize)
+	if err != nil {
+		return nil, err
+	}
+
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
 	if err != nil {
 		return nil, err
@@ -606,6 +699,30 @@ func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []b
 		return nil, sdkerrors.Wrap(types.ErrQueryFailed, qErr.Error())
 	}
 	return queryResult, nil
+}
+
+func checkAndIncreaseQueryStackSize(ctx sdk.Context, maxQueryStackSize uint32) (sdk.Context, error) {
+	var queryStackSize uint32
+
+	// read current value
+	if size := ctx.Context().Value(contextKeyQueryStackSize); size != nil {
+		queryStackSize = size.(uint32)
+	} else {
+		queryStackSize = 0
+	}
+
+	// increase
+	queryStackSize++
+
+	// did we go too far?
+	if queryStackSize > maxQueryStackSize {
+		return ctx, types.ErrExceedMaxQueryStackSize
+	}
+
+	// set updated stack size
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), contextKeyQueryStackSize, queryStackSize))
+
+	return ctx, nil
 }
 
 // QueryRaw returns the contract's state for give key. Returns `nil` when key is `nil`.
@@ -627,14 +744,14 @@ func (k Keeper) contractInstance(ctx sdk.Context, contractAddress sdk.AccAddress
 		return types.ContractInfo{}, types.CodeInfo{}, prefix.Store{}, sdkerrors.Wrap(types.ErrNotFound, "contract")
 	}
 	var contractInfo types.ContractInfo
-	k.cdc.MustUnmarshalBinaryBare(contractBz, &contractInfo)
+	k.cdc.MustUnmarshal(contractBz, &contractInfo)
 
 	codeInfoBz := store.Get(types.GetCodeKey(contractInfo.CodeID))
 	if codeInfoBz == nil {
 		return contractInfo, types.CodeInfo{}, prefix.Store{}, sdkerrors.Wrap(types.ErrNotFound, "code info")
 	}
 	var codeInfo types.CodeInfo
-	k.cdc.MustUnmarshalBinaryBare(codeInfoBz, &codeInfo)
+	k.cdc.MustUnmarshal(codeInfoBz, &codeInfo)
 	prefixStoreKey := types.GetContractStorePrefix(contractAddress)
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), prefixStoreKey)
 	return contractInfo, codeInfo, prefixStore, nil
@@ -647,7 +764,7 @@ func (k Keeper) GetContractInfo(ctx sdk.Context, contractAddress sdk.AccAddress)
 	if contractBz == nil {
 		return nil
 	}
-	k.cdc.MustUnmarshalBinaryBare(contractBz, &contract)
+	k.cdc.MustUnmarshal(contractBz, &contract)
 	return &contract
 }
 
@@ -659,15 +776,17 @@ func (k Keeper) HasContractInfo(ctx sdk.Context, contractAddress sdk.AccAddress)
 // storeContractInfo persists the ContractInfo. No secondary index updated here.
 func (k Keeper) storeContractInfo(ctx sdk.Context, contractAddress sdk.AccAddress, contract *types.ContractInfo) {
 	store := ctx.KVStore(k.storeKey)
-	store.Set(types.GetContractAddressKey(contractAddress), k.cdc.MustMarshalBinaryBare(contract))
+	store.Set(types.GetContractAddressKey(contractAddress), k.cdc.MustMarshal(contract))
 }
 
 func (k Keeper) IterateContractInfo(ctx sdk.Context, cb func(sdk.AccAddress, types.ContractInfo) bool) {
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.ContractKeyPrefix)
 	iter := prefixStore.Iterator(nil, nil)
+	defer iter.Close()
+
 	for ; iter.Valid(); iter.Next() {
 		var contract types.ContractInfo
-		k.cdc.MustUnmarshalBinaryBare(iter.Value(), &contract)
+		k.cdc.MustUnmarshal(iter.Value(), &contract)
 		// cb returns true to stop early
 		if cb(iter.Key(), contract) {
 			break
@@ -675,10 +794,19 @@ func (k Keeper) IterateContractInfo(ctx sdk.Context, cb func(sdk.AccAddress, typ
 	}
 }
 
-func (k Keeper) GetContractState(ctx sdk.Context, contractAddress sdk.AccAddress) sdk.Iterator {
+// IterateContractState iterates through all elements of the key value store for the given contract address and passes
+// them to the provided callback function. The callback method can return true to abort early.
+func (k Keeper) IterateContractState(ctx sdk.Context, contractAddress sdk.AccAddress, cb func(key, value []byte) bool) {
 	prefixStoreKey := types.GetContractStorePrefix(contractAddress)
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), prefixStoreKey)
-	return prefixStore.Iterator(nil, nil)
+	iter := prefixStore.Iterator(nil, nil)
+	defer iter.Close()
+
+	for ; iter.Valid(); iter.Next() {
+		if cb(iter.Key(), iter.Value()) {
+			break
+		}
+	}
 }
 
 func (k Keeper) importContractState(ctx sdk.Context, contractAddress sdk.AccAddress, models []types.Model) error {
@@ -703,7 +831,7 @@ func (k Keeper) GetCodeInfo(ctx sdk.Context, codeID uint64) *types.CodeInfo {
 	if codeInfoBz == nil {
 		return nil
 	}
-	k.cdc.MustUnmarshalBinaryBare(codeInfoBz, &codeInfo)
+	k.cdc.MustUnmarshal(codeInfoBz, &codeInfo)
 	return &codeInfo
 }
 
@@ -715,9 +843,11 @@ func (k Keeper) containsCodeInfo(ctx sdk.Context, codeID uint64) bool {
 func (k Keeper) IterateCodeInfos(ctx sdk.Context, cb func(uint64, types.CodeInfo) bool) {
 	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.CodeKeyPrefix)
 	iter := prefixStore.Iterator(nil, nil)
+	defer iter.Close()
+
 	for ; iter.Valid(); iter.Next() {
 		var c types.CodeInfo
-		k.cdc.MustUnmarshalBinaryBare(iter.Value(), &c)
+		k.cdc.MustUnmarshal(iter.Value(), &c)
 		// cb returns true to stop early
 		if cb(binary.BigEndian.Uint64(iter.Key()), c) {
 			return
@@ -732,7 +862,7 @@ func (k Keeper) GetByteCode(ctx sdk.Context, codeID uint64) ([]byte, error) {
 	if codeInfoBz == nil {
 		return nil, nil
 	}
-	k.cdc.MustUnmarshalBinaryBare(codeInfoBz, &codeInfo)
+	k.cdc.MustUnmarshal(codeInfoBz, &codeInfo)
 	return k.wasmVM.GetCode(codeInfo.CodeHash)
 }
 
@@ -787,6 +917,8 @@ func (k Keeper) IsPinnedCode(ctx sdk.Context, codeID uint64) bool {
 func (k Keeper) InitializePinnedCodes(ctx sdk.Context) error {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PinnedCodeIndexPrefix)
 	iter := store.Iterator(nil, nil)
+	defer iter.Close()
+
 	for ; iter.Valid(); iter.Next() {
 		codeInfo := k.GetCodeInfo(ctx, types.ParsePinnedCodeIndex(iter.Key()))
 		if codeInfo == nil {
@@ -809,6 +941,22 @@ func (k Keeper) setContractInfoExtension(ctx sdk.Context, contractAddr sdk.AccAd
 		return err
 	}
 	k.storeContractInfo(ctx, contractAddr, info)
+	return nil
+}
+
+// setAccessConfig updates the access config of a code id.
+func (k Keeper) setAccessConfig(ctx sdk.Context, codeID uint64, caller sdk.AccAddress, newConfig types.AccessConfig, authz AuthorizationPolicy) error {
+	info := k.GetCodeInfo(ctx, codeID)
+	if info == nil {
+		return sdkerrors.Wrap(types.ErrNotFound, "code info")
+	}
+	isSubset := newConfig.Permission.IsSubset(k.getInstantiateAccessConfig(ctx))
+	if !authz.CanModifyCodeAccessConfig(sdk.MustAccAddressFromBech32(info.Creator), caller, isSubset) {
+		return sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "can not modify code access config")
+	}
+
+	info.InstantiateConfig = newConfig
+	k.storeCodeInfo(ctx, codeID, *info)
 	return nil
 }
 
@@ -859,55 +1007,6 @@ func (k Keeper) consumeRuntimeGas(ctx sdk.Context, gas uint64) {
 	// throw OutOfGas error if we ran out (got exactly to zero due to better limit enforcing)
 	if ctx.GasMeter().IsOutOfGas() {
 		panic(sdk.ErrorOutOfGas{Descriptor: "Wasmer function execution"})
-	}
-}
-
-// generates a contract address from codeID + instanceID
-func (k Keeper) generateContractAddress(ctx sdk.Context, codeID uint64) sdk.AccAddress {
-	instanceID := k.autoIncrementID(ctx, types.KeyLastInstanceID)
-	return BuildContractAddress(codeID, instanceID)
-}
-
-// BuildContractAddress builds an sdk account address for a contract.
-func BuildContractAddress(codeID, instanceID uint64) sdk.AccAddress {
-	contractID := make([]byte, 16)
-	binary.BigEndian.PutUint64(contractID[:8], codeID)
-	binary.BigEndian.PutUint64(contractID[8:], instanceID)
-	// 20 bytes to work with Cosmos SDK 0.42 (0.43 pushes for 32 bytes)
-	// TODO: remove truncate if we update to 0.43 before wasmd 1.0
-	return Module(types.ModuleName, contractID)[:20]
-}
-
-// Hash and Module is taken from https://github.com/cosmos/cosmos-sdk/blob/v0.43.0-rc2/types/address/hash.go
-// (PR #9088 included in Cosmos SDK 0.43 - can be swapped out for the sdk version when we upgrade)
-
-// Hash creates a new address from address type and key
-func Hash(typ string, key []byte) []byte {
-	hasher := sha256.New()
-	_, err := hasher.Write([]byte(typ))
-	// the error always nil, it's here only to satisfy the io.Writer interface
-	assertNil(err)
-	th := hasher.Sum(nil)
-
-	hasher.Reset()
-	_, err = hasher.Write(th)
-	assertNil(err)
-	_, err = hasher.Write(key)
-	assertNil(err)
-	return hasher.Sum(nil)
-}
-
-// Module is a specialized version of a composed address for modules. Each module account
-// is constructed from a module name and module account key.
-func Module(moduleName string, key []byte) []byte {
-	mKey := append([]byte(moduleName), 0)
-	return Hash("module", append(mKey, key...))
-}
-
-// Also from the 0.43 Cosmos SDK... sigh (sdkerrors.AssertNil)
-func assertNil(err error) {
-	if err != nil {
-		panic(fmt.Errorf("logic error - this should never happen. %w", err))
 	}
 }
 
@@ -993,7 +1092,7 @@ func moduleLogger(ctx sdk.Context) log.Logger {
 }
 
 // Querier creates a new grpc querier instance
-func Querier(k *Keeper) *grpcQuerier {
+func Querier(k *Keeper) *grpcQuerier { //nolint:revive
 	return NewGrpcQuerier(k.cdc, k.storeKey, k, k.queryGasLimit)
 }
 
@@ -1016,16 +1115,17 @@ func NewBankCoinTransferrer(keeper types.BankKeeper) BankCoinTransferrer {
 
 // TransferCoins transfers coins from source to destination account when coin send was enabled for them and the recipient
 // is not in the blocked address list.
-func (c BankCoinTransferrer) TransferCoins(parentCtx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
+func (c BankCoinTransferrer) TransferCoins(parentCtx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amount sdk.Coins) error {
 	em := sdk.NewEventManager()
 	ctx := parentCtx.WithEventManager(em)
-	if err := c.keeper.SendEnabledCoins(ctx, amt...); err != nil {
+	if err := c.keeper.IsSendEnabledCoins(ctx, amount...); err != nil {
 		return err
 	}
-	if c.keeper.BlockedAddr(fromAddr) {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "blocked address can not be used")
+	if c.keeper.BlockedAddr(toAddr) {
+		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", toAddr.String())
 	}
-	sdkerr := c.keeper.SendCoins(ctx, fromAddr, toAddr, amt)
+
+	sdkerr := c.keeper.SendCoins(ctx, fromAddr, toAddr, amount)
 	if sdkerr != nil {
 		return sdkerr
 	}
@@ -1036,6 +1136,43 @@ func (c BankCoinTransferrer) TransferCoins(parentCtx sdk.Context, fromAddr sdk.A
 		parentCtx.EventManager().EmitEvent(e)
 	}
 	return nil
+}
+
+var _ AccountPruner = VestingCoinBurner{}
+
+// VestingCoinBurner default implementation for AccountPruner to burn the coins
+type VestingCoinBurner struct {
+	bank types.BankKeeper
+}
+
+// NewVestingCoinBurner constructor
+func NewVestingCoinBurner(bank types.BankKeeper) VestingCoinBurner {
+	if bank == nil {
+		panic("bank keeper must not be nil")
+	}
+	return VestingCoinBurner{bank: bank}
+}
+
+// CleanupExistingAccount accepts only vesting account types to burns all their original vesting coin balances.
+// Other account types will be rejected and returned as unhandled.
+func (b VestingCoinBurner) CleanupExistingAccount(ctx sdk.Context, existingAcc authtypes.AccountI) (handled bool, err error) {
+	v, ok := existingAcc.(vestingexported.VestingAccount)
+	if !ok {
+		return false, nil
+	}
+
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	coinsToBurn := sdk.NewCoins()
+	for _, orig := range v.GetOriginalVesting() { // focus on the coin denoms that were setup originally; getAllBalances has some issues
+		coinsToBurn = append(coinsToBurn, b.bank.GetBalance(ctx, existingAcc.GetAddress(), orig.Denom))
+	}
+	if err := b.bank.SendCoinsFromAccountToModule(ctx, existingAcc.GetAddress(), types.ModuleName, coinsToBurn); err != nil {
+		return false, sdkerrors.Wrap(err, "prune account balance")
+	}
+	if err := b.bank.BurnCoins(ctx, types.ModuleName, coinsToBurn); err != nil {
+		return false, sdkerrors.Wrap(err, "burn account balance")
+	}
+	return true, nil
 }
 
 type msgDispatcher interface {

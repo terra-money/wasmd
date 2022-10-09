@@ -12,14 +12,11 @@ import (
 
 const (
 	firstCodeID                     = 1
-	DefaultParamspace               = types.DefaultParamspace
 	ModuleName                      = types.ModuleName
 	StoreKey                        = types.StoreKey
 	TStoreKey                       = types.TStoreKey
 	QuerierRoute                    = types.QuerierRoute
 	RouterKey                       = types.RouterKey
-	MaxWasmSize                     = types.MaxWasmSize
-	MaxLabelSize                    = types.MaxLabelSize
 	WasmModuleEventType             = types.WasmModuleEventType
 	AttributeKeyContractAddr        = types.AttributeKeyContractAddr
 	ProposalTypeStoreCode           = types.ProposalTypeStoreCode
@@ -105,6 +102,7 @@ type (
 	MsgStoreCode                   = types.MsgStoreCode
 	MsgStoreCodeResponse           = types.MsgStoreCodeResponse
 	MsgInstantiateContract         = types.MsgInstantiateContract
+	MsgInstantiateContract2        = types.MsgInstantiateContract2
 	MsgInstantiateContractResponse = types.MsgInstantiateContractResponse
 	MsgExecuteContract             = types.MsgExecuteContract
 	MsgExecuteContractResponse     = types.MsgExecuteContractResponse

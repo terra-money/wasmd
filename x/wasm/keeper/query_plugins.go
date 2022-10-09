@@ -2,9 +2,11 @@ package keeper
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 
-	channeltypes "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
+	"github.com/cosmos/cosmos-sdk/baseapp"
+
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 
@@ -13,7 +15,6 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 type QueryHandler struct {
@@ -32,14 +33,8 @@ func NewQueryHandler(ctx sdk.Context, vmQueryHandler WasmVMQueryHandler, caller 
 	}
 }
 
-// -- interfaces from baseapp - so we can use the GPRQueryRouter --
-
-// GRPCQueryHandler defines a function type which handles ABCI Query requests
-// using gRPC
-type GRPCQueryHandler = func(ctx sdk.Context, req abci.RequestQuery) (abci.ResponseQuery, error)
-
 type GRPCQueryRouter interface {
-	Route(path string) GRPCQueryHandler
+	Route(path string) baseapp.GRPCQueryHandler
 }
 
 // -- end baseapp interfaces --
@@ -56,7 +51,21 @@ func (q QueryHandler) Query(request wasmvmtypes.QueryRequest, gasLimit uint64) (
 	defer func() {
 		q.Ctx.GasMeter().ConsumeGas(subCtx.GasMeter().GasConsumed(), "contract sub-query")
 	}()
-	return q.Plugins.HandleQuery(subCtx, q.Caller, request)
+
+	res, err := q.Plugins.HandleQuery(subCtx, q.Caller, request)
+	if err == nil {
+		// short-circuit, the rest is dealing with handling existing errors
+		return res, nil
+	}
+
+	// special mappings to system error (which are not redacted)
+	var noSuchContract *types.ErrNoSuchContract
+	if ok := errors.As(err, &noSuchContract); ok {
+		err = wasmvmtypes.NoSuchContract{Addr: noSuchContract.Addr}
+	}
+
+	// Issue #759 - we don't return error string for worries of non-determinism
+	return nil, redactError(err)
 }
 
 func (q QueryHandler) GasConsumed() uint64 {
@@ -162,7 +171,7 @@ func BankQuerier(bankKeeper types.BankViewKeeper) func(ctx sdk.Context, request 
 			}
 			coins := bankKeeper.GetAllBalances(ctx, addr)
 			res := wasmvmtypes.AllBalancesResponse{
-				Amount: convertSdkCoinsToWasmCoins(coins),
+				Amount: ConvertSdkCoinsToWasmCoins(coins),
 			}
 			return json.Marshal(res)
 		}
@@ -173,6 +182,16 @@ func BankQuerier(bankKeeper types.BankViewKeeper) func(ctx sdk.Context, request 
 			}
 			coin := bankKeeper.GetBalance(ctx, addr, request.Balance.Denom)
 			res := wasmvmtypes.BalanceResponse{
+				Amount: wasmvmtypes.Coin{
+					Denom:  coin.Denom,
+					Amount: coin.Amount.String(),
+				},
+			}
+			return json.Marshal(res)
+		}
+		if request.Supply != nil {
+			coin := bankKeeper.GetSupply(ctx, request.Supply.Denom)
+			res := wasmvmtypes.SupplyResponse{
 				Amount: wasmvmtypes.Coin{
 					Denom:  coin.Denom,
 					Amount: coin.Amount.String(),
@@ -261,19 +280,7 @@ func IBCQuerier(wasm contractMetaDataSource, channelKeeper types.ChannelKeeper) 
 
 func StargateQuerier(queryRouter GRPCQueryRouter) func(ctx sdk.Context, request *wasmvmtypes.StargateQuery) ([]byte, error) {
 	return func(ctx sdk.Context, msg *wasmvmtypes.StargateQuery) ([]byte, error) {
-		route := queryRouter.Route(msg.Path)
-		if route == nil {
-			return nil, wasmvmtypes.UnsupportedRequest{Kind: fmt.Sprintf("No route to query '%s'", msg.Path)}
-		}
-		req := abci.RequestQuery{
-			Data: msg.Data,
-			Path: msg.Path,
-		}
-		res, err := route(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		return res.Value, nil
+		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Stargate queries are disabled."}
 	}
 }
 
@@ -384,7 +391,7 @@ func sdkToDelegations(ctx sdk.Context, keeper types.StakingKeeper, delegations [
 		result[i] = wasmvmtypes.Delegation{
 			Delegator: delAddr.String(),
 			Validator: valAddr.String(),
-			Amount:    convertSdkCoinToWasmCoin(amount),
+			Amount:    ConvertSdkCoinToWasmCoin(amount),
 		}
 	}
 	return result, nil
@@ -406,7 +413,7 @@ func sdkToFullDelegation(ctx sdk.Context, keeper types.StakingKeeper, distKeeper
 	bondDenom := keeper.BondDenom(ctx)
 	amount := sdk.NewCoin(bondDenom, val.TokensFromShares(delegation.Shares).TruncateInt())
 
-	delegationCoins := convertSdkCoinToWasmCoin(amount)
+	delegationCoins := ConvertSdkCoinToWasmCoin(amount)
 
 	// FIXME: this is very rough but better than nothing...
 	// https://github.com/CosmWasm/wasmd/issues/282
@@ -487,7 +494,7 @@ func WasmQuerier(k wasmQueryKeeper) func(ctx sdk.Context, request *wasmvmtypes.W
 			}
 			info := k.GetContractInfo(ctx, addr)
 			if info == nil {
-				return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownAddress, request.ContractInfo.ContractAddr)
+				return nil, &types.ErrNoSuchContract{Addr: request.ContractInfo.ContractAddr}
 			}
 
 			res := wasmvmtypes.ContractInfoResponse{
@@ -503,15 +510,17 @@ func WasmQuerier(k wasmQueryKeeper) func(ctx sdk.Context, request *wasmvmtypes.W
 	}
 }
 
-func convertSdkCoinsToWasmCoins(coins []sdk.Coin) wasmvmtypes.Coins {
+// ConvertSdkCoinsToWasmCoins covert sdk type to wasmvm coins type
+func ConvertSdkCoinsToWasmCoins(coins []sdk.Coin) wasmvmtypes.Coins {
 	converted := make(wasmvmtypes.Coins, len(coins))
 	for i, c := range coins {
-		converted[i] = convertSdkCoinToWasmCoin(c)
+		converted[i] = ConvertSdkCoinToWasmCoin(c)
 	}
 	return converted
 }
 
-func convertSdkCoinToWasmCoin(coin sdk.Coin) wasmvmtypes.Coin {
+// ConvertSdkCoinToWasmCoin covert sdk type to wasmvm coin type
+func ConvertSdkCoinToWasmCoin(coin sdk.Coin) wasmvmtypes.Coin {
 	return wasmvmtypes.Coin{
 		Denom:  coin.Denom,
 		Amount: coin.Amount.String(),

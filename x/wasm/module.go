@@ -3,7 +3,10 @@ package wasm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand"
+	"runtime/debug"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -24,6 +27,7 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/CosmWasm/wasmd/x/wasm/simulation"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
+	wasmvm "github.com/CosmWasm/wasmvm"
 )
 
 var (
@@ -59,14 +63,14 @@ func (AppModuleBasic) Name() string {
 
 // DefaultGenesis returns default genesis state as raw bytes for the wasm
 // module.
-func (AppModuleBasic) DefaultGenesis(cdc codec.JSONMarshaler) json.RawMessage {
+func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 	return cdc.MustMarshalJSON(&GenesisState{
 		Params: DefaultParams(),
 	})
 }
 
 // ValidateGenesis performs genesis state validation for the wasm module.
-func (b AppModuleBasic) ValidateGenesis(marshaler codec.JSONMarshaler, config client.TxEncodingConfig, message json.RawMessage) error {
+func (b AppModuleBasic) ValidateGenesis(marshaler codec.JSONCodec, config client.TxEncodingConfig, message json.RawMessage) error {
 	var data GenesisState
 	err := marshaler.UnmarshalJSON(message, &data)
 	if err != nil {
@@ -100,18 +104,34 @@ func (b AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) 
 // AppModule implements an application module for the wasm module.
 type AppModule struct {
 	AppModuleBasic
-	cdc                codec.Marshaler
+	cdc                codec.Codec
 	keeper             *Keeper
 	validatorSetSource keeper.ValidatorSetSource
+	accountKeeper      types.AccountKeeper // for simulation
+	bankKeeper         simulation.BankKeeper
 }
 
+// ConsensusVersion is a sequence number for state-breaking change of the
+// module. It should be incremented on each consensus-breaking change
+// introduced by the module. To avoid wrong/empty versions, the initial version
+// should be set to 1.
+func (AppModule) ConsensusVersion() uint64 { return 1 }
+
 // NewAppModule creates a new AppModule object
-func NewAppModule(cdc codec.Marshaler, keeper *Keeper, validatorSetSource keeper.ValidatorSetSource) AppModule {
+func NewAppModule(
+	cdc codec.Codec,
+	keeper *Keeper,
+	validatorSetSource keeper.ValidatorSetSource,
+	ak types.AccountKeeper,
+	bk simulation.BankKeeper,
+) AppModule {
 	return AppModule{
 		AppModuleBasic:     AppModuleBasic{},
 		cdc:                cdc,
 		keeper:             keeper,
 		validatorSetSource: validatorSetSource,
+		accountKeeper:      ak,
+		bankKeeper:         bk,
 	}
 }
 
@@ -139,7 +159,7 @@ func (AppModule) QuerierRoute() string {
 
 // InitGenesis performs genesis initialization for the wasm module. It returns
 // no validator updates.
-func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONMarshaler, data json.RawMessage) []abci.ValidatorUpdate {
+func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.RawMessage) []abci.ValidatorUpdate {
 	var genesisState GenesisState
 	cdc.MustUnmarshalJSON(data, &genesisState)
 	validators, err := InitGenesis(ctx, am.keeper, genesisState, am.validatorSetSource, am.Route().Handler())
@@ -151,7 +171,7 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONMarshaler, data j
 
 // ExportGenesis returns the exported genesis state as raw bytes for the wasm
 // module.
-func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONMarshaler) json.RawMessage {
+func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
 	gs := ExportGenesis(ctx, am.keeper)
 	return cdc.MustMarshalJSON(gs)
 }
@@ -190,7 +210,7 @@ func (am AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {
 
 // WeightedOperations returns the all the gov module operations with their respective weights.
 func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
-	return nil
+	return simulation.WeightedOperations(&simState, am.accountKeeper, am.bankKeeper, am.keeper)
 }
 
 // ____________________________________________________________________________
@@ -201,6 +221,8 @@ func AddModuleInitFlags(startCmd *cobra.Command) {
 	startCmd.Flags().Uint32(flagWasmMemoryCacheSize, defaults.MemoryCacheSize, "Sets the size in MiB (NOT bytes) of an in-memory cache for Wasm modules. Set to 0 to disable.")
 	startCmd.Flags().Uint64(flagWasmQueryGasLimit, defaults.SmartQueryGasLimit, "Set the max gas that can be spent on executing a query with a Wasm contract")
 	startCmd.Flags().String(flagWasmSimulationGasLimit, "", "Set the max gas that can be spent when executing a simulation TX")
+
+	startCmd.PreRunE = chainPreRuns(checkLibwasmVersion, startCmd.PreRunE)
 }
 
 // ReadWasmConfig reads the wasm specifig configuration
@@ -233,4 +255,51 @@ func ReadWasmConfig(opts servertypes.AppOptions) (types.WasmConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func getExpectedLibwasmVersion() string {
+	buildInfo, ok := debug.ReadBuildInfo()
+	if !ok {
+		panic("can't read build info")
+	}
+	for _, d := range buildInfo.Deps {
+		if d.Path != "github.com/CosmWasm/wasmvm" {
+			continue
+		}
+		if d.Replace != nil {
+			return d.Replace.Version
+		}
+		return d.Version
+	}
+	return ""
+}
+
+func checkLibwasmVersion(cmd *cobra.Command, args []string) error {
+	wasmVersion, err := wasmvm.LibwasmvmVersion()
+	if err != nil {
+		return fmt.Errorf("unable to retrieve libwasmversion %w", err)
+	}
+	wasmExpectedVersion := getExpectedLibwasmVersion()
+	if wasmExpectedVersion == "" {
+		return fmt.Errorf("wasmvm module not exist")
+	}
+	if !strings.Contains(wasmExpectedVersion, wasmVersion) {
+		return fmt.Errorf("libwasmversion mismatch. got: %s; expected: %s", wasmVersion, wasmExpectedVersion)
+	}
+	return nil
+}
+
+type preRunFn func(cmd *cobra.Command, args []string) error
+
+func chainPreRuns(pfns ...preRunFn) preRunFn {
+	return func(cmd *cobra.Command, args []string) error {
+		for _, pfn := range pfns {
+			if pfn != nil {
+				if err := pfn(cmd, args); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
 }

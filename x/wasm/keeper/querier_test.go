@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	cosmwasm "github.com/CosmWasm/wasmvm"
+	wasmvm "github.com/CosmWasm/wasmvm"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkErrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -27,7 +27,7 @@ import (
 )
 
 func TestQueryAllContractState(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	keeper := keepers.WasmKeeper
 
 	exampleContract := InstantiateHackatomExampleContract(t, ctx, keepers)
@@ -114,7 +114,7 @@ func TestQueryAllContractState(t *testing.T) {
 }
 
 func TestQuerySmartContractState(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	keeper := keepers.WasmKeeper
 
 	exampleContract := InstantiateHackatomExampleContract(t, ctx, keepers)
@@ -157,8 +157,8 @@ func TestQuerySmartContractState(t *testing.T) {
 }
 
 func TestQuerySmartContractPanics(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
-	contractAddr := BuildContractAddress(1, 1)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
+	contractAddr := BuildContractAddressClassic(1, 1)
 	keepers.WasmKeeper.storeCodeInfo(ctx, 1, types.CodeInfo{})
 	keepers.WasmKeeper.storeContractInfo(ctx, contractAddr, &types.ContractInfo{
 		CodeID:  1,
@@ -185,7 +185,7 @@ func TestQuerySmartContractPanics(t *testing.T) {
 	}
 	for msg, spec := range specs {
 		t.Run(msg, func(t *testing.T) {
-			keepers.WasmKeeper.wasmVM = &wasmtesting.MockWasmer{QueryFn: func(checksum cosmwasm.Checksum, env wasmvmtypes.Env, queryMsg []byte, store cosmwasm.KVStore, goapi cosmwasm.GoAPI, querier cosmwasm.Querier, gasMeter cosmwasm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) ([]byte, uint64, error) {
+			keepers.WasmKeeper.wasmVM = &wasmtesting.MockWasmer{QueryFn: func(checksum wasmvm.Checksum, env wasmvmtypes.Env, queryMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) ([]byte, uint64, error) {
 				spec.doInContract()
 				return nil, 0, nil
 			}}
@@ -202,7 +202,7 @@ func TestQuerySmartContractPanics(t *testing.T) {
 }
 
 func TestQueryRawContractState(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	keeper := keepers.WasmKeeper
 
 	exampleContract := InstantiateHackatomExampleContract(t, ctx, keepers)
@@ -257,18 +257,18 @@ func TestQueryRawContractState(t *testing.T) {
 }
 
 func TestQueryContractListByCodeOrdering(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
-	accKeeper, keeper, bankKeeper := keepers.AccountKeeper, keepers.WasmKeeper, keepers.BankKeeper
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
+	keeper := keepers.WasmKeeper
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 1000000))
 	topUp := sdk.NewCoins(sdk.NewInt64Coin("denom", 500))
-	creator := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, deposit)
-	anyAddr := createFakeFundedAccount(t, ctx, accKeeper, bankKeeper, topUp)
+	creator := keepers.Faucet.NewFundedRandomAccount(ctx, deposit...)
+	anyAddr := keepers.Faucet.NewFundedRandomAccount(ctx, topUp...)
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
-	codeID, err := keepers.ContractKeeper.Create(ctx, creator, wasmCode, nil)
+	codeID, _, err := keepers.ContractKeeper.Create(ctx, creator, wasmCode, nil)
 	require.NoError(t, err)
 
 	_, _, bob := keyPubAddr()
@@ -313,7 +313,7 @@ func TestQueryContractListByCodeOrdering(t *testing.T) {
 }
 
 func TestQueryContractHistory(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	keeper := keepers.WasmKeeper
 
 	var (
@@ -454,10 +454,10 @@ func TestQueryContractHistory(t *testing.T) {
 }
 
 func TestQueryCodeList(t *testing.T) {
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	keeper := keepers.WasmKeeper
 
 	specs := map[string]struct {
@@ -533,7 +533,7 @@ func TestQueryContractInfo(t *testing.T) {
 		contractAddr = RandomAccountAddress(t)
 		anyDate      = time.Now().UTC()
 	)
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	// register an example extension. must be protobuf
 	keepers.EncodingConfig.InterfaceRegistry.RegisterImplementations(
 		(*types.ContractInfoExtension)(nil),
@@ -599,7 +599,7 @@ func TestQueryContractInfo(t *testing.T) {
 }
 
 func TestQueryPinnedCodes(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
 	keeper := keepers.WasmKeeper
 
 	exampleContract1 := InstantiateHackatomExampleContract(t, ctx, keepers)
@@ -653,6 +653,153 @@ func TestQueryPinnedCodes(t *testing.T) {
 			assert.Equal(t, spec.expCodeIDs, got.CodeIDs)
 		})
 	}
+}
+
+func TestQueryParams(t *testing.T) {
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
+	keeper := keepers.WasmKeeper
+
+	q := Querier(keeper)
+
+	paramsResponse, err := q.Params(sdk.WrapSDKContext(ctx), &types.QueryParamsRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, paramsResponse)
+
+	defaultParams := types.DefaultParams()
+
+	require.Equal(t, paramsResponse.Params.CodeUploadAccess, defaultParams.CodeUploadAccess)
+	require.Equal(t, paramsResponse.Params.InstantiateDefaultPermission, defaultParams.InstantiateDefaultPermission)
+
+	keeper.SetParams(ctx, types.Params{
+		CodeUploadAccess:             types.AllowNobody,
+		InstantiateDefaultPermission: types.AccessTypeNobody,
+	})
+
+	paramsResponse, err = q.Params(sdk.WrapSDKContext(ctx), &types.QueryParamsRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, paramsResponse)
+
+	require.Equal(t, paramsResponse.Params.CodeUploadAccess, types.AllowNobody)
+	require.Equal(t, paramsResponse.Params.InstantiateDefaultPermission, types.AccessTypeNobody)
+}
+
+func TestQueryCodeInfo(t *testing.T) {
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
+	require.NoError(t, err)
+
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
+	keeper := keepers.WasmKeeper
+
+	anyAddress, err := sdk.AccAddressFromBech32("cosmos100dejzacpanrldpjjwksjm62shqhyss44jf5xz")
+	require.NoError(t, err)
+	specs := map[string]struct {
+		codeId       uint64
+		accessConfig types.AccessConfig
+	}{
+		"everybody": {
+			codeId:       1,
+			accessConfig: types.AllowEverybody,
+		},
+		"nobody": {
+			codeId:       10,
+			accessConfig: types.AllowNobody,
+		},
+		"with_address": {
+			codeId:       20,
+			accessConfig: types.AccessTypeOnlyAddress.With(anyAddress),
+		},
+	}
+	for msg, spec := range specs {
+		t.Run(msg, func(t *testing.T) {
+			codeInfo := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
+			codeInfo.InstantiateConfig = spec.accessConfig
+			require.NoError(t, keeper.importCode(ctx, spec.codeId,
+				codeInfo,
+				wasmCode),
+			)
+
+			q := Querier(keeper)
+			got, err := q.Code(sdk.WrapSDKContext(ctx), &types.QueryCodeRequest{
+				CodeId: spec.codeId,
+			})
+			require.NoError(t, err)
+			expectedResponse := &types.QueryCodeResponse{
+				CodeInfoResponse: &types.CodeInfoResponse{
+					CodeID:                spec.codeId,
+					Creator:               codeInfo.Creator,
+					DataHash:              codeInfo.CodeHash,
+					InstantiatePermission: spec.accessConfig,
+				},
+				Data: wasmCode,
+			}
+			require.NotNil(t, got.CodeInfoResponse)
+			require.EqualValues(t, expectedResponse, got)
+		})
+	}
+}
+
+func TestQueryCodeInfoList(t *testing.T) {
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
+	require.NoError(t, err)
+
+	ctx, keepers := CreateTestInput(t, false, AvailableCapabilities)
+	keeper := keepers.WasmKeeper
+
+	anyAddress, err := sdk.AccAddressFromBech32("cosmos100dejzacpanrldpjjwksjm62shqhyss44jf5xz")
+	require.NoError(t, err)
+	codeInfoWithConfig := func(accessConfig types.AccessConfig) types.CodeInfo {
+		codeInfo := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
+		codeInfo.InstantiateConfig = accessConfig
+		return codeInfo
+	}
+
+	codes := []struct {
+		name     string
+		codeId   uint64
+		codeInfo types.CodeInfo
+	}{
+		{
+			name:     "everybody",
+			codeId:   1,
+			codeInfo: codeInfoWithConfig(types.AllowEverybody),
+		},
+		{
+			codeId:   10,
+			name:     "nobody",
+			codeInfo: codeInfoWithConfig(types.AllowNobody),
+		},
+		{
+			name:     "with_address",
+			codeId:   20,
+			codeInfo: codeInfoWithConfig(types.AccessTypeOnlyAddress.With(anyAddress)),
+		},
+	}
+
+	allCodesResponse := make([]types.CodeInfoResponse, 0)
+	for _, code := range codes {
+		t.Run(fmt.Sprintf("import_%s", code.name), func(t *testing.T) {
+			require.NoError(t, keeper.importCode(ctx, code.codeId,
+				code.codeInfo,
+				wasmCode),
+			)
+		})
+
+		allCodesResponse = append(allCodesResponse, types.CodeInfoResponse{
+			CodeID:                code.codeId,
+			Creator:               code.codeInfo.Creator,
+			DataHash:              code.codeInfo.CodeHash,
+			InstantiatePermission: code.codeInfo.InstantiateConfig,
+		})
+	}
+	q := Querier(keeper)
+	got, err := q.Codes(sdk.WrapSDKContext(ctx), &types.QueryCodesRequest{
+		Pagination: &query.PageRequest{
+			Limit: 3,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.CodeInfos, 3)
+	require.EqualValues(t, allCodesResponse, got.CodeInfos)
 }
 
 func fromBase64(s string) []byte {

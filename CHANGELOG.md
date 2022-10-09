@@ -2,11 +2,170 @@
 
 ## [Unreleased](https://github.com/CosmWasm/wasmd/tree/HEAD)
 
-[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.21.0...HEAD)
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.29.0...HEAD)
+
+## [v0.29.0-rc1](https://github.com/CosmWasm/wasmd/tree/v0.29.0-rc1) (2022-09-22)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.28.0...v0.29.0-rc1)
+
+- Allow AccessConfig to use a list of addresses instead of just a single address [\#945](https://github.com/CosmWasm/wasmd/issues/945)
+- Make contract addresses predictable \("deterministic"\) [\#942](https://github.com/CosmWasm/wasmd/issues/942)
+- Add query for the total supply of a coin [\#903](https://github.com/CosmWasm/wasmd/pull/903) ([larry0x](https://github.com/larry0x))
+- Upgrade go to v1.18 [\#866]https://github.com/CosmWasm/wasmd/pull/866/) ([faddat](https://github.com/faddat))
+- Upgrade to ibc-go v3.3.0 REQUIRES [MIGRATION](https://github.com/cosmos/ibc-go/blob/v3.2.3/docs/migrations/support-denoms-with-slashes.md) [\#1016](https://github.com/CosmWasm/wasmd/pull/1016)
+- Upgrade to cosmos-sdk v0.45.8 [\#964](https://github.com/CosmWasm/wasmd/pull/964/) ([faddat](https://github.com/faddat))
+- Upgrade wasmvm to v1.1.1 [\#1012](https://github.com/CosmWasm/wasmd/pull/1012), see [wasmvm v1.1.1](https://github.com/CosmWasm/wasmvm/releases/tag/v1.1.1)
+- Add documentation how to add x/wasm to a new Cosmos SDK chain [\#876](https://github.com/CosmWasm/wasmd/issues/876)
+- Upgrade keyring / go-keychain dependencies (removes deprecate warning) [\#957](https://github.com/CosmWasm/wasmd/issues/957)
+- Make contract pinning an optional field in StoreCode proposals  [\#972](https://github.com/CosmWasm/wasmd/issues/972)
+- Add gRPC query for WASM params [\#889](https://github.com/CosmWasm/wasmd/issues/889)
+- Expose Keepers in app.go? [\#881](https://github.com/CosmWasm/wasmd/issues/881)
+- Remove unused `flagProposalType` flag in gov proposals [\#849](https://github.com/CosmWasm/wasmd/issues/849)
+- Restrict code access config modifications [\#901](https://github.com/CosmWasm/wasmd/pull/901) ([alpe](https://github.com/alpe))
+- Prevent migration to a restricted code [\#900](https://github.com/CosmWasm/wasmd/pull/900) ([alpe](https://github.com/alpe))
+- Charge gas to unzip wasm code [\#898](https://github.com/CosmWasm/wasmd/pull/898) ([alpe](https://github.com/alpe))
+
+### Notable changes:
+- BaseAccount and pruned vesting account types can be re-used for contracts addresses
+- A new [MsgInstantiateContract2](https://github.com/CosmWasm/wasmd/pull/1014/files#diff-bf58b9da4b674719f07dd5421c532c1ead13a15f8896b59c1f724215d2064b73R75) was introduced which is an additional value for `message` type events
+- Store event contains new attribute with code checksum now
+- New `wasmd tx wasm instantiate2` CLI command for predictable addresses on instantiation
+
+### Migration notes:
+- See ibc-go [migration notes](https://github.com/cosmos/ibc-go/blob/v3.3.0/docs/migrations/support-denoms-with-slashes.md)
+
+
+## [v0.28.0](https://github.com/CosmWasm/wasmd/tree/v0.28.0) (2022-07-29)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.27.0...v0.28.0)
+
+**API Breaking**
+
+No
+
+**Fixed Bugs**
+
+- Fix: Make events in reply completely determinisitic by stripping out anything coming from Cosmos SDK (not CosmWasm codebase) [\#917](https://github.com/CosmWasm/wasmd/pull/917) ([assafmo](https://github.com/assafmo))
+
+Migration notes:
+
+* Contracts can no longer parse events from any calls except if they call another contract (or instantiate it, migrate it, etc).
+The main issue here is likely "Custom" queries from a blockchain, which want to send info (eg. how many tokens were swapped).
+Since those custom bindings are maintained by the chain, they can use the data field to pass any deterministic information
+back to the contract. We recommend using JSON encoding there with some documented format the contracts can parse out easily.
+* For possible non-determinism issues, we also sort all attributes in events. Better safe than sorry.
+
+## [v0.27.0](https://github.com/CosmWasm/wasmd/tree/v0.27.0) (2022-05-19)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.26.0...v0.27.0)
+
+**API Breaking**
+Yes
+
+**Fixed bugs:**
+
+- Fix: allow no admin in instantiation through proposal [\#828](https://github.com/CosmWasm/wasmd/pull/828) ([jhernandezb](https://github.com/jhernandezb))
+- Fix SudoContractProposal and ExecuteContractProposal [\#808](https://github.com/CosmWasm/wasmd/pull/808) ([the-frey](https://github.com/the-frey))
+
+**Implemented Enhancements**
+- Add UpdateInstantiateConfig governance proposal [\#820](https://github.com/CosmWasm/wasmd/pull/796) ([jhernandezb](https://github.com/jhernandezb))
+- Upgrade wasmvm to v1.0.0 [\#844](https://github.com/CosmWasm/wasmd/pull/844) and [\#858](https://github.com/CosmWasm/wasmd/pull/858)
+- Support state sync [\#478](https://github.com/CosmWasm/wasmd/issues/478)
+- Upgrade to ibc-go v3 [\#806](https://github.com/CosmWasm/wasmd/issues/806)
+- Initial ICA integration [\#837](https://github.com/CosmWasm/wasmd/pull/837) ([ethanfrey](https://github.com/ethanfrey))
+- Consolidate MaxWasmSize constraints into a single var [\#826](https://github.com/CosmWasm/wasmd/pull/826)
+- Add AccessConfig to CodeInfo query response [\#829](https://github.com/CosmWasm/wasmd/issues/829)
+- Bump sdk to v0.45.4 [\#818](https://github.com/CosmWasm/wasmd/pull/818) ([alpe](https://github.com/alpe))
+- Bump buf docker image to fix proto generation issues [\#820](https://github.com/CosmWasm/wasmd/pull/820) ([alpe](https://github.com/alpe))
+- Add MsgStoreCode and MsgInstantiateContract support to simulations [\#831](https://github.com/CosmWasm/wasmd/pull/831) ([pinosu](https://github.com/pinosu))
+
+**Implemented Enhancements**
+
+- Make MaxLabelSize a var not const [\#822](https://github.com/CosmWasm/wasmd/pull/822)
+
+## [v0.26.0](https://github.com/CosmWasm/wasmd/tree/v0.26.0) (2022-04-21)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.25.0...v0.26.0)
+
+**Fixed bugs:**
+
+- Unpack contract details from genesis [\#802](https://github.com/CosmWasm/wasmd/pull/802)
+
+**Closed issues:**
+
+- Issue Updating uploadAccess Param [\#804](https://github.com/CosmWasm/wasmd/issues/804)
+- Add tx query to wasmd QueryPlugins for smart contract [\#788](https://github.com/CosmWasm/wasmd/issues/788)
+
+**Merged pull requests:**
+
+- Disable stargate queries [\#812](https://github.com/CosmWasm/wasmd/pull/812)
+- Gov param change examples [\#805](https://github.com/CosmWasm/wasmd/pull/805)
+- Create link to SECURITY.md in other repo [\#801](https://github.com/CosmWasm/wasmd/pull/801)
+- Tests some event edge cases [\#799](https://github.com/CosmWasm/wasmd/pull/799)
+
+## [v0.25.0](https://github.com/CosmWasm/wasmd/tree/v0.25.0) (2022-04-06)
+
+**API Breaking**
+- Upgrade wasmvm to v1.0.0-beta10 [\#790](https://github.com/CosmWasm/wasmd/pull/790), [\#800](https://github.com/CosmWasm/wasmd/pull/800)
+
+**Implemented Enhancements**
+- Fix: close iterators [\#792](https://github.com/CosmWasm/wasmd/pull/792)
+- Use callback pattern for contract state iterator [\#794](https://github.com/CosmWasm/wasmd/pull/794)
+- Bump github.com/stretchr/testify from 1.7.0 to 1.7.1 [\#787](https://github.com/CosmWasm/wasmd/pull/787)
+- Bump github.com/cosmos/ibc-go/v2 from 2.0.3 to 2.2.0 [\#786](https://github.com/CosmWasm/wasmd/pull/786)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.24.0...v0.25.0)
+
+## [v0.24.0](https://github.com/CosmWasm/wasmd/tree/v0.24.0) (2022-03-09)
+
+**API Breaking**
+- Add cosmwasm project prefix to REST query paths [\#743](https://github.com/CosmWasm/wasmd/issues/743)
+- Add support for old contract addresses of length 20 [\#758](https://github.com/CosmWasm/wasmd/issues/758)
+- Update wasmvm to 1.0.0-beta7 (incl wasmer 2.2) [\#774](https://github.com/CosmWasm/wasmd/issues/774)
+
+**Fixed bugs**
+- Add missing colons in String of some proposals [\#752](https://github.com/CosmWasm/wasmd/pull/752)
+- Replace custom codec with SDK codec (needed for rosetta) [\#760](https://github.com/CosmWasm/wasmd/pull/760)
+- Support `--no-admin` flag on cli for gov instantiation [\#771](https://github.com/CosmWasm/wasmd/pull/771)
+
+**Implemented Enhancements**
+- Add support for Buf Build [\#753](https://github.com/CosmWasm/wasmd/pull/753), [\#755](https://github.com/CosmWasm/wasmd/pull/755), [\#756](https://github.com/CosmWasm/wasmd/pull/756)
+- Redact most errors sent to contracts, for better determinism guarantees [\#765](https://github.com/CosmWasm/wasmd/pull/765), [\#775](https://github.com/CosmWasm/wasmd/pull/775)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.23.0...v0.24.0)
+
+## [v0.23.0](https://github.com/CosmWasm/wasmd/tree/v0.23.0) (2022-01-28)
+
+**Fixed bugs**
+- Set end block order [\#736](https://github.com/CosmWasm/wasmd/issues/736)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.22.0...v0.23.0)
+
+## [v0.22.0](https://github.com/CosmWasm/wasmd/tree/v0.22.0) (2022-01-20)
+
+**Api Breaking:**
+- Upgrade to cosmos-sdk v0.45.0 [\#717](https://github.com/CosmWasm/wasmd/pull/717)
+- Upgrade wasmvm to v1.0.0-beta5 [\#714](https://github.com/CosmWasm/wasmd/pull/714)
+
+**Implemented Enhancements:**
+- Use proper SystemError::NoSuchContract on ContractInfo if missing [\#687](https://github.com/CosmWasm/wasmd/issues/687)
+- Benchmark tests flickering: directory not empty [\#659](https://github.com/CosmWasm/wasmd/issues/659)
+- Implement PinCode and UnpinCode proposal client handlers [\#707](https://github.com/CosmWasm/wasmd/pull/707) ([orkunkl](https://github.com/orkunkl))
+- Use replace statements to enforce consistent versioning. [\#692](https://github.com/CosmWasm/wasmd/pull/692) ([faddat](https://github.com/faddat))
+- Fixed circleci by removing the golang executor from a docker build
+- Go 1.17 provides a much clearer go.mod file [\#679](https://github.com/CosmWasm/wasmd/pull/679) ([faddat](https://github.com/faddat))
+- Autopin wasm code uploaded by gov proposal [\#726](https://github.com/CosmWasm/wasmd/pull/726) ([ethanfrey](https://github.com/ethanfrey))
+- You must explicitly declare --no-admin on cli instantiate if that is what you want [\#727](https://github.com/CosmWasm/wasmd/pull/727) ([ethanfrey](https://github.com/ethanfrey))
+- Add governance proposals for Wasm Execute and Sudo [\#730](https://github.com/CosmWasm/wasmd/pull/730) ([ethanfrey](https://github.com/ethanfrey))
+- Remove unused run-as flag from Wasm Migrate proposals [\#730](https://github.com/CosmWasm/wasmd/pull/730) ([ethanfrey](https://github.com/ethanfrey))
+- Expose wasm/Keeper.SetParams [\#732](https://github.com/CosmWasm/wasmd/pull/732) ([ethanfrey](https://github.com/ethanfrey))
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.21.0...v0.22.0)
+
 
 ## [v0.21.0](https://github.com/CosmWasm/wasmd/tree/v0.21.0) (2021-11-17)
 
-[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.21.0...v0.20.0)
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.20.0...v0.21.0)
 
 **Fixed bugs + Api Breaking:**
 - Prevent infinite gas consumption in simulation queries [\#670](https://github.com/CosmWasm/wasmd/issues/670)
@@ -26,7 +185,7 @@
 
 ## [v0.20.0](https://github.com/CosmWasm/wasmd/tree/v0.20.0) (2021-10-08)
 
-[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.20.0...v0.19.0)
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.19.0...v0.20.0)
 
 **Fixed bugs:**
 
@@ -50,7 +209,7 @@
 
 ## [v0.19.0](https://github.com/CosmWasm/wasmd/tree/v0.19.0) (2021-09-15)
 
-[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.19.0...v0.18.0)
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.18.0...v0.19.0)
 
 **Fixed bugs:**
 
@@ -71,7 +230,7 @@
 
 ## [v0.18.0](https://github.com/CosmWasm/wasmd/tree/v0.18.0) (2021-08-16)
 
-[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.18.0...v0.17.0)
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.17.0...v0.18.0)
 
 **Api Breaking:**
 - Events documented and refactored [\#448](https://github.com/CosmWasm/wasmd/issues/448), [\#589](https://github.com/CosmWasm/wasmd/pull/589), [\#587](https://github.com/CosmWasm/wasmd/issues/587)
@@ -99,7 +258,7 @@
 
 ## [v0.17.0](https://github.com/CosmWasm/wasmd/tree/v0.17.0) (2021-05-26)
 
-[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.17.0...v0.16.0)
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.16.0...v0.17.0)
 
 **Features:**
 - Remove json type cast for contract msgs [\#520](https://github.com/CosmWasm/wasmd/pull/520) ([alpe](https://github.com/alpe))

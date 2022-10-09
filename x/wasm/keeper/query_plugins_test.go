@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/store"
+	dbm "github.com/tendermint/tm-db"
+
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	channeltypes "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -313,7 +316,6 @@ func TestIBCQuerier(t *testing.T) {
 			assert.JSONEq(t, spec.expJsonResult, string(gotResult), string(gotResult))
 		})
 	}
-
 }
 
 func TestBankQuerierBalance(t *testing.T) {
@@ -342,9 +344,9 @@ func TestBankQuerierBalance(t *testing.T) {
 }
 
 func TestContractInfoWasmQuerier(t *testing.T) {
-	var myValidContractAddr = RandomBech32AccountAddress(t)
-	var myCreatorAddr = RandomBech32AccountAddress(t)
-	var myAdminAddr = RandomBech32AccountAddress(t)
+	myValidContractAddr := RandomBech32AccountAddress(t)
+	myCreatorAddr := RandomBech32AccountAddress(t)
+	myAdminAddr := RandomBech32AccountAddress(t)
 	var ctx sdk.Context
 
 	specs := map[string]struct {
@@ -357,12 +359,13 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 			req: &wasmvmtypes.WasmQuery{
 				ContractInfo: &wasmvmtypes.ContractInfoQuery{ContractAddr: myValidContractAddr},
 			},
-			mock: mockWasmQueryKeeper{GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
-				val := types.ContractInfoFixture(func(i *types.ContractInfo) {
-					i.Admin, i.Creator, i.IBCPortID = myAdminAddr, myCreatorAddr, "myIBCPort"
-				})
-				return &val
-			},
+			mock: mockWasmQueryKeeper{
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+					val := types.ContractInfoFixture(func(i *types.ContractInfo) {
+						i.Admin, i.Creator, i.IBCPortID = myAdminAddr, myCreatorAddr, "myIBCPort"
+					})
+					return &val
+				},
 				IsPinnedCodeFn: func(ctx sdk.Context, codeID uint64) bool { return true },
 			},
 			expRes: wasmvmtypes.ContractInfoResponse{
@@ -392,12 +395,13 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 			req: &wasmvmtypes.WasmQuery{
 				ContractInfo: &wasmvmtypes.ContractInfoQuery{ContractAddr: myValidContractAddr},
 			},
-			mock: mockWasmQueryKeeper{GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
-				val := types.ContractInfoFixture(func(i *types.ContractInfo) {
-					i.Admin, i.Creator = myAdminAddr, myCreatorAddr
-				})
-				return &val
-			},
+			mock: mockWasmQueryKeeper{
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+					val := types.ContractInfoFixture(func(i *types.ContractInfo) {
+						i.Admin, i.Creator = myAdminAddr, myCreatorAddr
+					})
+					return &val
+				},
 				IsPinnedCodeFn: func(ctx sdk.Context, codeID uint64) bool { return false },
 			},
 			expRes: wasmvmtypes.ContractInfoResponse{
@@ -411,12 +415,13 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 			req: &wasmvmtypes.WasmQuery{
 				ContractInfo: &wasmvmtypes.ContractInfoQuery{ContractAddr: myValidContractAddr},
 			},
-			mock: mockWasmQueryKeeper{GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
-				val := types.ContractInfoFixture(func(i *types.ContractInfo) {
-					i.Creator = myCreatorAddr
-				})
-				return &val
-			},
+			mock: mockWasmQueryKeeper{
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+					val := types.ContractInfoFixture(func(i *types.ContractInfo) {
+						i.Creator = myCreatorAddr
+					})
+					return &val
+				},
 				IsPinnedCodeFn: func(ctx sdk.Context, codeID uint64) bool { return true },
 			},
 			expRes: wasmvmtypes.ContractInfoResponse{
@@ -438,6 +443,34 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 			var gotRes wasmvmtypes.ContractInfoResponse
 			require.NoError(t, json.Unmarshal(gotBz, &gotRes))
 			assert.Equal(t, spec.expRes, gotRes)
+		})
+	}
+}
+
+func TestQueryErrors(t *testing.T) {
+	specs := map[string]struct {
+		src    error
+		expErr error
+	}{
+		"no error": {},
+		"no such contract": {
+			src:    &types.ErrNoSuchContract{Addr: "contract-addr"},
+			expErr: wasmvmtypes.NoSuchContract{Addr: "contract-addr"},
+		},
+		"no such contract - wrapped": {
+			src:    sdkerrors.Wrap(&types.ErrNoSuchContract{Addr: "contract-addr"}, "my additional data"),
+			expErr: wasmvmtypes.NoSuchContract{Addr: "contract-addr"},
+		},
+	}
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			mock := WasmVMQueryHandlerFn(func(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
+				return nil, spec.src
+			})
+			ctx := sdk.Context{}.WithGasMeter(sdk.NewInfiniteGasMeter()).WithMultiStore(store.NewCommitMultiStore(dbm.NewMemDB()))
+			q := NewQueryHandler(ctx, mock, sdk.AccAddress{}, NewDefaultWasmGasRegister())
+			_, gotErr := q.Query(wasmvmtypes.QueryRequest{}, 1)
+			assert.Equal(t, spec.expErr, gotErr)
 		})
 	}
 }
@@ -478,8 +511,16 @@ func (m mockWasmQueryKeeper) IsPinnedCode(ctx sdk.Context, codeID uint64) bool {
 }
 
 type bankKeeperMock struct {
+	GetSupplyFn      func(ctx sdk.Context, denom string) sdk.Coin
 	GetBalanceFn     func(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
 	GetAllBalancesFn func(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+}
+
+func (m bankKeeperMock) GetSupply(ctx sdk.Context, denom string) sdk.Coin {
+	if m.GetSupplyFn == nil {
+		panic("not expected to be called")
+	}
+	return m.GetSupplyFn(ctx, denom)
 }
 
 func (m bankKeeperMock) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {

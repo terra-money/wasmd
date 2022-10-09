@@ -22,25 +22,30 @@ func (k Keeper) OnOpenChannel(
 	ctx sdk.Context,
 	contractAddr sdk.AccAddress,
 	msg wasmvmtypes.IBCChannelOpenMsg,
-) error {
+) (string, error) {
 	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "ibc-open-channel")
+	version := ""
 
 	_, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	env := types.NewEnv(ctx, contractAddr)
 	querier := k.newQueryHandler(ctx, contractAddr)
 
 	gas := k.runtimeGasForContract(ctx)
-	gasUsed, execErr := k.wasmVM.IBCChannelOpen(codeInfo.CodeHash, env, msg, prefixStore, cosmwasmAPI, querier, ctx.GasMeter(), gas, costJSONDeserialization)
+	res, gasUsed, execErr := k.wasmVM.IBCChannelOpen(codeInfo.CodeHash, env, msg, prefixStore, cosmwasmAPI, querier, ctx.GasMeter(), gas, costJSONDeserialization)
 	k.consumeRuntimeGas(ctx, gasUsed)
 	if execErr != nil {
-		return sdkerrors.Wrap(types.ErrExecuteFailed, execErr.Error())
+		return "", sdkerrors.Wrap(types.ErrExecuteFailed, execErr.Error())
 	}
 
-	return nil
+	if res != nil {
+		version = res.Version
+	}
+
+	return version, nil
 }
 
 // OnConnectChannel calls the contract to let it know the IBC channel was established.
@@ -131,8 +136,11 @@ func (k Keeper) OnRecvPacket(
 	if execErr != nil {
 		return nil, sdkerrors.Wrap(types.ErrExecuteFailed, execErr.Error())
 	}
+	if res.Err != "" { // handle error case as before https://github.com/CosmWasm/wasmvm/commit/c300106fe5c9426a495f8e10821e00a9330c56c6
+		return nil, sdkerrors.Wrap(types.ErrExecuteFailed, res.Err)
+	}
 	// note submessage reply results can overwrite the `Acknowledgement` data
-	return k.handleContractResponse(ctx, contractAddr, contractInfo.IBCPortID, res.Messages, res.Attributes, res.Acknowledgement, res.Events)
+	return k.handleContractResponse(ctx, contractAddr, contractInfo.IBCPortID, res.Ok.Messages, res.Ok.Attributes, res.Ok.Acknowledgement, res.Ok.Events)
 }
 
 // OnAckPacket calls the contract to handle the "acknowledgement" data which can contain success or failure of a packet

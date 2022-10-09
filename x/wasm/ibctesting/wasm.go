@@ -5,8 +5,10 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
+
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/golang/protobuf/proto" //nolint
@@ -14,7 +16,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/rand"
 
-	wasmd "github.com/CosmWasm/wasmd/app"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
@@ -34,7 +35,7 @@ func (chain *TestChain) SeedNewContractInstance() sdk.AccAddress {
 }
 
 func (chain *TestChain) StoreCodeFile(filename string) types.MsgStoreCodeResponse {
-	wasmCode, err := ioutil.ReadFile(filename)
+	wasmCode, err := os.ReadFile(filename)
 	require.NoError(chain.t, err)
 	if strings.HasSuffix(filename, "wasm") { // compress for gas limit
 		var buf bytes.Buffer
@@ -61,6 +62,7 @@ func (chain *TestChain) StoreCode(byteCode []byte) types.MsgStoreCodeResponse {
 	var pInstResp types.MsgStoreCodeResponse
 	require.NoError(chain.t, pInstResp.Unmarshal(protoResult.Data[0].Data))
 	require.NotEmpty(chain.t, pInstResp.CodeID)
+	require.NotEmpty(chain.t, pInstResp.Checksum)
 	return pInstResp
 }
 
@@ -71,7 +73,7 @@ func (chain *TestChain) InstantiateContract(codeID uint64, initMsg []byte) sdk.A
 		CodeID: codeID,
 		Label:  "ibc-test",
 		Msg:    initMsg,
-		Funds:  sdk.Coins{TestCoin},
+		Funds:  sdk.Coins{ibctesting.TestCoin},
 	}
 
 	r, err := chain.SendMsgs(instantiateMsg)
@@ -132,10 +134,5 @@ func (chain *TestChain) parseSDKResultData(r *sdk.Result) sdk.TxMsgData {
 
 // ContractInfo is a helper function to returns the ContractInfo for the given contract address
 func (chain *TestChain) ContractInfo(contractAddr sdk.AccAddress) *types.ContractInfo {
-	return chain.TestSupport().WasmKeeper().GetContractInfo(chain.GetContext(), contractAddr)
-}
-
-// TestSupport provides access to package private keepers.
-func (chain *TestChain) TestSupport() *wasmd.TestSupport {
-	return wasmd.NewTestSupport(chain.t, chain.App)
+	return chain.App.WasmKeeper.GetContractInfo(chain.GetContext(), contractAddr)
 }
