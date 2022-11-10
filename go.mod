@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/CosmWasm/wasmvm v1.0.0
 	github.com/cosmos/cosmos-sdk v0.45.5
-	github.com/cosmos/iavl v0.17.3
+	github.com/cosmos/iavl v0.19.4
 	github.com/cosmos/ibc-go/v3 v3.0.0
 	github.com/cosmos/interchain-accounts v0.1.0
 	github.com/dvsekhvalnov/jose2go v1.5.0
@@ -129,8 +129,8 @@ replace (
 	// Use the cosmos-flavored keyring library
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.1.7-0.20210622111912-ef00f8ac3d76
 
-	// Our cosmos-sdk branch is:  https://github.com/osmosis-labs/cosmos-sdk v0.45.0x-osmo-v12, Direct link: https://github.com/osmosis-labs/cosmos-sdk/releases/tag/v0.45.0-osmo-v12
-	github.com/cosmos/cosmos-sdk => github.com/osmosis-labs/cosmos-sdk v0.45.0-osmo-v12
+	// Our cosmos-sdk branch is:  https://github.com/osmosis-labs/cosmos-sdk v0.45.0x-osmo-v12, Direct link: https://github.com/osmosis-labs/cosmos-sdk/commit/c1eb80426bbcbd691c4522128840264a5c695e42
+	github.com/cosmos/cosmos-sdk => github.com/osmosis-labs/cosmos-sdk v0.45.1-0.20221109193459-c1eb80426bbc
 	// Use Osmosis fast iavl
 	github.com/cosmos/iavl => github.com/osmosis-labs/iavl v0.17.3-osmo-v7
 	// Fix upstream GHSA-h395-qcrw-5vmq vulnerability.

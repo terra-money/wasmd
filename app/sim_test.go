@@ -143,7 +143,7 @@ func TestAppImportExport(t *testing.T) {
 
 	t.Log("exporting genesis...")
 
-	exported, err := app.ExportAppStateAndValidators(false, []string{})
+	exported, err := app.ExportAppStateAndValidators(false, []string{}, []string{})
 	require.NoError(t, err)
 
 	t.Log("importing genesis...")
