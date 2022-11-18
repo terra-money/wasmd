@@ -54,7 +54,7 @@ func TestStoreCodeProposal(t *testing.T) {
 			})
 
 			// when stored
-			storedProposal, err := govKeeper.SubmitProposal(ctx, src)
+			storedProposal, err := govKeeper.SubmitProposal(ctx, src, false)
 			require.NoError(t, err)
 
 			// and proposal execute

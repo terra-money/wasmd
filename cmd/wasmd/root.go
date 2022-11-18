@@ -247,6 +247,7 @@ func (ac appCreator) appExport(
 	forZeroHeight bool,
 	jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
+	smh []string,
 ) (servertypes.ExportedApp, error) {
 	var wasmApp *app.WasmApp
 	homePath, ok := appOpts.Get(flags.FlagHome).(string)
@@ -276,5 +277,5 @@ func (ac appCreator) appExport(
 		}
 	}
 
-	return wasmApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
+	return wasmApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs, nil)
 }
