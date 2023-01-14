@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path"
 	"testing"
@@ -42,7 +41,7 @@ func TestGenesisStoreCodeCmd(t *testing.T) {
 	minimalWasmGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
 	}
-	anyValidWasmFile, err := ioutil.TempFile(t.TempDir(), "wasm")
+	anyValidWasmFile, err := os.CreateTemp(t.TempDir(), "wasm")
 	require.NoError(t, err)
 	anyValidWasmFile.Write(wasmIdent)
 	require.NoError(t, anyValidWasmFile.Close())
@@ -109,7 +108,7 @@ func TestInstantiateContractCmd(t *testing.T) {
 	minimalWasmGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
 	}
-	anyValidWasmFile, err := ioutil.TempFile(t.TempDir(), "wasm")
+	anyValidWasmFile, err := os.CreateTemp(t.TempDir(), "wasm")
 	require.NoError(t, err)
 	anyValidWasmFile.Write(wasmIdent)
 	require.NoError(t, anyValidWasmFile.Close())
@@ -368,7 +367,7 @@ func TestExecuteContractCmd(t *testing.T) {
 	minimalWasmGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
 	}
-	anyValidWasmFile, err := ioutil.TempFile(t.TempDir(), "wasm")
+	anyValidWasmFile, err := os.CreateTemp(t.TempDir(), "wasm")
 	require.NoError(t, err)
 	anyValidWasmFile.Write(wasmIdent)
 	require.NoError(t, anyValidWasmFile.Close())
@@ -392,10 +391,11 @@ func TestExecuteContractCmd(t *testing.T) {
 				Contracts: []types.Contract{
 					{
 						ContractAddress: firstContractAddress,
-						ContractInfo: types.ContractInfoFixture(func(info *types.ContractInfo) {
-							info.Created = nil
-						}),
-						ContractState: []types.Model{},
+						ContractInfo:    types.ContractInfoFixture(),
+						ContractState:   []types.Model{},
+						ContractCodeHistory: []types.ContractCodeHistoryEntry{
+							types.ContractCodeHistoryEntryFixture(),
+						},
 					},
 				},
 			},
@@ -474,10 +474,11 @@ func TestExecuteContractCmd(t *testing.T) {
 				Contracts: []types.Contract{
 					{
 						ContractAddress: firstContractAddress,
-						ContractInfo: types.ContractInfoFixture(func(info *types.ContractInfo) {
-							info.Created = nil
-						}),
-						ContractState: []types.Model{},
+						ContractInfo:    types.ContractInfoFixture(),
+						ContractState:   []types.Model{},
+						ContractCodeHistory: []types.ContractCodeHistoryEntry{
+							types.ContractCodeHistoryEntryFixture(),
+						},
 					},
 				},
 			},
@@ -501,10 +502,11 @@ func TestExecuteContractCmd(t *testing.T) {
 				Contracts: []types.Contract{
 					{
 						ContractAddress: firstContractAddress,
-						ContractInfo: types.ContractInfoFixture(func(info *types.ContractInfo) {
-							info.Created = nil
-						}),
-						ContractState: []types.Model{},
+						ContractInfo:    types.ContractInfoFixture(),
+						ContractState:   []types.Model{},
+						ContractCodeHistory: []types.ContractCodeHistoryEntry{
+							types.ContractCodeHistoryEntryFixture(),
+						},
 					},
 				},
 			},
@@ -529,10 +531,11 @@ func TestExecuteContractCmd(t *testing.T) {
 				Contracts: []types.Contract{
 					{
 						ContractAddress: firstContractAddress,
-						ContractInfo: types.ContractInfoFixture(func(info *types.ContractInfo) {
-							info.Created = nil
-						}),
-						ContractState: []types.Model{},
+						ContractInfo:    types.ContractInfoFixture(),
+						ContractState:   []types.Model{},
+						ContractCodeHistory: []types.ContractCodeHistoryEntry{
+							types.ContractCodeHistoryEntryFixture(),
+						},
 					},
 				},
 			},
@@ -603,11 +606,11 @@ func TestGetAllContracts(t *testing.T) {
 			},
 			exp: []ContractMeta{
 				{
-					ContractAddress: keeper.BuildContractAddress(0, 1).String(),
+					ContractAddress: keeper.BuildContractAddressClassic(0, 1).String(),
 					Info:            types.ContractInfo{Label: "first"},
 				},
 				{
-					ContractAddress: keeper.BuildContractAddress(0, 2).String(),
+					ContractAddress: keeper.BuildContractAddressClassic(0, 2).String(),
 					Info:            types.ContractInfo{Label: "second"},
 				},
 			},
@@ -623,7 +626,7 @@ func TestGetAllContracts(t *testing.T) {
 			},
 			exp: []ContractMeta{
 				{
-					ContractAddress: keeper.BuildContractAddress(0, 100).String(),
+					ContractAddress: keeper.BuildContractAddressClassic(0, 100).String(),
 					Info:            types.ContractInfo{Label: "hundred"},
 				},
 			},
@@ -649,7 +652,7 @@ func TestGetAllContracts(t *testing.T) {
 					Info:            types.ContractInfo{Label: "first"},
 				},
 				{
-					ContractAddress: keeper.BuildContractAddress(0, 100).String(),
+					ContractAddress: keeper.BuildContractAddressClassic(0, 100).String(),
 					Info:            types.ContractInfo{Label: "hundred"},
 				},
 			},

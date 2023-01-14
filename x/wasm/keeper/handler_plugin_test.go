@@ -11,9 +11,9 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	ibcexported "github.com/cosmos/ibc-go/v3/modules/core/exported"
+	clienttypes "github.com/cosmos/ibc-go/v4/modules/core/02-client/types"
+	channeltypes "github.com/cosmos/ibc-go/v4/modules/core/04-channel/types"
+	ibcexported "github.com/cosmos/ibc-go/v4/modules/core/exported"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -327,7 +327,7 @@ func TestBurnCoinMessageHandlerIntegration(t *testing.T) {
 	// picks the message in the default handler chain
 	ctx, keepers := CreateDefaultTestInput(t)
 	// set some supply
-	keepers.Faucet.NewFundedAccount(ctx, sdk.NewCoin("denom", sdk.NewInt(10_000_000)))
+	keepers.Faucet.NewFundedRandomAccount(ctx, sdk.NewCoin("denom", sdk.NewInt(10_000_000)))
 	k := keepers.WasmKeeper
 
 	example := InstantiateHackatomExampleContract(t, ctx, keepers) // with deposit of 100 stake
