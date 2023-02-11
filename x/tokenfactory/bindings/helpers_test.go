@@ -1,7 +1,7 @@
 package bindings_test
 
 import (
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -49,7 +49,7 @@ func RandomBech32AccountAddress() string {
 }
 
 func storeReflectCode(t *testing.T, ctx sdk.Context, tokenz *app.WasmApp, addr sdk.AccAddress) uint64 {
-	wasmCode, err := ioutil.ReadFile("./testdata/token_reflect.wasm")
+	wasmCode, err := os.ReadFile("./testdata/token_reflect.wasm")
 	require.NoError(t, err)
 
 	contractKeeper := keeper.NewDefaultPermissionKeeper(tokenz.WasmKeeper)
