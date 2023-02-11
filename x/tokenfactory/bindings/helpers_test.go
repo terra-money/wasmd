@@ -17,13 +17,13 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm/keeper"
 )
 
-func CreateTestInput() (*app.TokenApp, sdk.Context) {
+func CreateTestInput() (*app.WasmApp, sdk.Context) {
 	osmosis := app.Setup(false)
 	ctx := osmosis.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "osmosis-1", Time: time.Now().UTC()})
 	return osmosis, ctx
 }
 
-func FundAccount(t *testing.T, ctx sdk.Context, osmosis *app.TokenApp, acct sdk.AccAddress) {
+func FundAccount(t *testing.T, ctx sdk.Context, osmosis *app.WasmApp, acct sdk.AccAddress) {
 	// TODO:
 	// err := simapp.FundAccount(osmosis.BankKeeper, ctx, acct, sdk.NewCoins(
 	// 	sdk.NewCoin("uosmo", sdk.NewInt(10000000000)),
@@ -48,7 +48,7 @@ func RandomBech32AccountAddress() string {
 	return RandomAccountAddress().String()
 }
 
-func storeReflectCode(t *testing.T, ctx sdk.Context, tokenz *app.TokenApp, addr sdk.AccAddress) uint64 {
+func storeReflectCode(t *testing.T, ctx sdk.Context, tokenz *app.WasmApp, addr sdk.AccAddress) uint64 {
 	wasmCode, err := ioutil.ReadFile("./testdata/token_reflect.wasm")
 	require.NoError(t, err)
 
@@ -59,7 +59,7 @@ func storeReflectCode(t *testing.T, ctx sdk.Context, tokenz *app.TokenApp, addr 
 	return codeID
 }
 
-func instantiateReflectContract(t *testing.T, ctx sdk.Context, tokenz *app.TokenApp, funder sdk.AccAddress) sdk.AccAddress {
+func instantiateReflectContract(t *testing.T, ctx sdk.Context, tokenz *app.WasmApp, funder sdk.AccAddress) sdk.AccAddress {
 	initMsgBz := []byte("{}")
 	contractKeeper := keeper.NewDefaultPermissionKeeper(tokenz.WasmKeeper)
 	codeID := uint64(1)
@@ -69,7 +69,7 @@ func instantiateReflectContract(t *testing.T, ctx sdk.Context, tokenz *app.Token
 	return addr
 }
 
-func fundAccount(t *testing.T, ctx sdk.Context, tokenz *app.TokenApp, addr sdk.AccAddress, coins sdk.Coins) {
+func fundAccount(t *testing.T, ctx sdk.Context, tokenz *app.WasmApp, addr sdk.AccAddress, coins sdk.Coins) {
 	// TODO:
 	// err := simapp.FundAccount(
 	// 	tokenz.BankKeeper,
@@ -81,7 +81,7 @@ func fundAccount(t *testing.T, ctx sdk.Context, tokenz *app.TokenApp, addr sdk.A
 	// require.NoError(t, err)
 }
 
-func SetupCustomApp(t *testing.T, addr sdk.AccAddress) (*app.TokenApp, sdk.Context) {
+func SetupCustomApp(t *testing.T, addr sdk.AccAddress) (*app.WasmApp, sdk.Context) {
 	tokenz, ctx := CreateTestInput()
 	wasmKeeper := tokenz.WasmKeeper
 
