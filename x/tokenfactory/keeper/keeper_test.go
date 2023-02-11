@@ -7,14 +7,14 @@ import (
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/CosmWasm/wasmd/app"
+	"github.com/CosmWasm/wasmd/app/apptesting"
 	"github.com/CosmWasm/wasmd/x/tokenfactory/keeper"
 	"github.com/CosmWasm/wasmd/x/tokenfactory/testhelpers"
 	"github.com/CosmWasm/wasmd/x/tokenfactory/types"
 )
 
 type KeeperTestSuite struct {
-	app.KeeperTestHelper
+	apptesting.KeeperTestHelper
 
 	queryClient types.QueryClient
 	msgServer   types.MsgServer
