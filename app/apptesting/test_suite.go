@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	sdkMath "cosmossdk.io/math"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -196,7 +196,7 @@ func (s *KeeperTestHelper) EndBlock() {
 }
 
 // AllocateRewardsToValidator allocates reward tokens to a distribution module then allocates rewards to the validator address.
-func (s *KeeperTestHelper) AllocateRewardsToValidator(valAddr sdk.ValAddress, rewardAmt sdkMath.Int) {
+func (s *KeeperTestHelper) AllocateRewardsToValidator(valAddr sdk.ValAddress, rewardAmt math.Int) {
 	validator, found := s.App.StakingKeeper.GetValidator(s.Ctx, valAddr)
 	s.Require().True(found)
 
@@ -244,13 +244,8 @@ func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
 }
 
 func TestMessageAuthzSerialization(t *testing.T, msg sdk.Msg) {
-	unixTime := func(s, ns int64) *time.Time {
-		t := time.Unix(s, ns)
-		return &t
-	}
-
-	someDate := unixTime(11, 0)
-	someDatePlus := unixTime(22, 0)
+	someDate := time.Date(1, 1, 1, 1, 1, 1, 1, time.UTC)
+	var expire *time.Time
 
 	const (
 		mockGranter string = "cosmos1abc"
@@ -265,7 +260,7 @@ func TestMessageAuthzSerialization(t *testing.T, msg sdk.Msg) {
 
 	// Authz: Grant Msg
 	typeURL := sdk.MsgTypeURL(msg)
-	grant, err := authz.NewGrant(*someDate, authz.NewGenericAuthorization(typeURL), someDatePlus)
+	grant, err := authz.NewGrant(someDate, authz.NewGenericAuthorization(typeURL), expire)
 	require.NoError(t, err)
 
 	msgGrant := authz.MsgGrant{Granter: mockGranter, Grantee: mockGrantee, Grant: grant}
