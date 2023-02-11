@@ -24,7 +24,6 @@ import (
 	"github.com/spf13/cobra"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	// "github.com/osmosis-labs/osmosis/v12/simulation/simtypes"
 	simulation "github.com/CosmWasm/wasmd/x/tokenfactory/simulation"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
