@@ -15,10 +15,11 @@ import (
 
 	"github.com/CosmWasm/wasmd/app"
 	"github.com/CosmWasm/wasmd/x/wasm/keeper"
+	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 )
 
 func CreateTestInput() (*app.WasmApp, sdk.Context) {
-	osmosis := app.Setup(false)
+	osmosis := app.Setup(&testing.T{}, false)
 	ctx := osmosis.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "osmosis-1", Time: time.Now().UTC()})
 	return osmosis, ctx
 }
@@ -79,6 +80,10 @@ func fundAccount(t *testing.T, ctx sdk.Context, tokenz *app.WasmApp, addr sdk.Ac
 	// )
 
 	// require.NoError(t, err)
+	err := tokenz.BankKeeper.MintCoins(ctx, minttypes.ModuleName, coins)
+	require.NoError(t, err)
+	err = tokenz.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, addr, coins)
+	require.NoError(t, err)
 }
 
 func SetupCustomApp(t *testing.T, addr sdk.AccAddress) (*app.WasmApp, sdk.Context) {

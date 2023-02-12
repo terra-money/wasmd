@@ -24,6 +24,7 @@ func TestCreateDenom(t *testing.T) {
 	specs := map[string]struct {
 		createDenom *bindings.CreateDenom
 		expErr      bool
+		expPanic    bool
 	}{
 		"valid sub-denom": {
 			createDenom: &bindings.CreateDenom{
@@ -34,11 +35,11 @@ func TestCreateDenom(t *testing.T) {
 			createDenom: &bindings.CreateDenom{
 				Subdenom: "",
 			},
-			expErr: false,
+			expPanic: true,
 		},
 		"invalid sub-denom": {
 			createDenom: &bindings.CreateDenom{
-				Subdenom: "sub-denom_2",
+				Subdenom: "sub-denom@2",
 			},
 			expErr: true,
 		},
@@ -49,6 +50,13 @@ func TestCreateDenom(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
+			if spec.expPanic {
+				require.Panics(t, func() {
+					_, err := wasmbinding.PerformCreateDenom(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, actor, spec.createDenom)
+					require.Error(t, err)
+				})
+				return
+			}
 			// when
 			_, gotErr := wasmbinding.PerformCreateDenom(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, actor, spec.createDenom)
 			// then
@@ -183,8 +191,13 @@ func TestMint(t *testing.T) {
 	emptyDenom := bindings.CreateDenom{
 		Subdenom: "",
 	}
-	_, err = wasmbinding.PerformCreateDenom(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, creator, &emptyDenom)
-	require.NoError(t, err)
+
+	require.Panics(t, func() {
+		_, err := wasmbinding.PerformCreateDenom(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, creator, &emptyDenom)
+		require.Error(t, err)
+	})
+	// _, err = wasmbinding.PerformCreateDenom(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, creator, &emptyDenom)
+	// require.Error(t, err)
 
 	validDenomStr := fmt.Sprintf("factory/%s/%s", creator.String(), validDenom.Subdenom)
 	emptyDenomStr := fmt.Sprintf("factory/%s/%s", creator.String(), emptyDenom.Subdenom)
@@ -215,7 +228,7 @@ func TestMint(t *testing.T) {
 				Amount:        amount,
 				MintToAddress: lucky.String(),
 			},
-			expErr: false,
+			expErr: true,
 		},
 		"nonexistent sub-denom": {
 			mint: &bindings.MintTokens{
@@ -302,8 +315,10 @@ func TestBurn(t *testing.T) {
 	emptyDenom := bindings.CreateDenom{
 		Subdenom: "",
 	}
-	_, err = wasmbinding.PerformCreateDenom(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, creator, &emptyDenom)
-	require.NoError(t, err)
+	require.Panics(t, func() {
+		_, err := wasmbinding.PerformCreateDenom(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, creator, &emptyDenom)
+		require.Error(t, err)
+	})
 
 	lucky := RandomAccountAddress()
 
@@ -342,7 +357,7 @@ func TestBurn(t *testing.T) {
 				Amount:          mintAmount,
 				BurnFromAddress: creator.String(),
 			},
-			expErr: false,
+			expErr: true,
 		},
 		"invalid sub-denom": {
 			burn: &bindings.BurnTokens{
@@ -399,7 +414,7 @@ func TestBurn(t *testing.T) {
 				MintToAddress: creator.String(),
 			}
 			err = wasmbinding.PerformMint(&tokenz.TokenFactoryKeeper, &tokenz.BankKeeper, ctx, creator, emptyDenomMintBinding)
-			require.NoError(t, err)
+			require.Error(t, err)
 
 			// when
 			gotErr := wasmbinding.PerformBurn(&tokenz.TokenFactoryKeeper, ctx, creator, spec.burn)
