@@ -81,7 +81,7 @@ func fundAccount(t *testing.T, ctx sdk.Context, tokenz *app.WasmApp, addr sdk.Ac
 
 	// require.NoError(t, err)
 	err := tokenz.BankKeeper.MintCoins(ctx, minttypes.ModuleName, coins)
-	require.NoError(t, err) 
+	require.NoError(t, err)
 	err = tokenz.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, addr, coins)
 	require.NoError(t, err)
 }
