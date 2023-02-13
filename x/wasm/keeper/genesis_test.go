@@ -29,6 +29,7 @@ import (
 	"github.com/tendermint/tendermint/proto/tendermint/crypto"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/exp/slices"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
@@ -38,6 +39,8 @@ const firstCodeID = 1
 func TestGenesisExportImport(t *testing.T) {
 	wasmKeeper, srcCtx, srcStoreKeys := setupKeeper(t)
 	contractKeeper := NewGovPermissionKeeper(wasmKeeper)
+	var keysModel []string
+	var isValidFuzz bool
 
 	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
@@ -56,9 +59,14 @@ func TestGenesisExportImport(t *testing.T) {
 			pinned            bool
 			contractExtension bool
 		)
+		f.Fuzz(&stateModels)
+		keysModel, isValidFuzz = isValidFuzzStateModels(t, keysModel, stateModels)
+		if !isValidFuzz {
+			continue
+		}
+
 		f.Fuzz(&codeInfo)
 		f.Fuzz(&contract)
-		f.Fuzz(&stateModels)
 		f.NilChance(0).Fuzz(&history)
 		f.Fuzz(&pinned)
 		f.Fuzz(&contractExtension)
@@ -87,7 +95,8 @@ func TestGenesisExportImport(t *testing.T) {
 		contractAddr := wasmKeeper.ClassicAddressGenerator()(srcCtx, codeID, nil)
 		wasmKeeper.storeContractInfo(srcCtx, contractAddr, &contract)
 		wasmKeeper.appendToContractHistory(srcCtx, contractAddr, history...)
-		wasmKeeper.importContractState(srcCtx, contractAddr, stateModels) //nolint:all
+		err = wasmKeeper.importContractState(srcCtx, contractAddr, stateModels)
+		require.NoError(t, err)
 	}
 	var wasmParams types.Params
 	f.NilChance(0).Fuzz(&wasmParams)
@@ -768,6 +777,25 @@ func setupKeeper(t *testing.T) (*Keeper, sdk.Context, []storetypes.StoreKey) {
 
 	srcKeeper := NewKeeper(encodingConfig.Marshaler, keyWasm, pk.Subspace(types.ModuleName), authkeeper.AccountKeeper{}, bankkeeper.BaseKeeper{}, stakingkeeper.Keeper{}, distributionkeeper.Keeper{}, nil, nil, nil, nil, nil, nil, tempDir, wasmConfig, AvailableCapabilities)
 	return &srcKeeper, ctx, []storetypes.StoreKey{keyWasm, keyParams}
+}
+
+// isValidFuzzStateModels: check if the keysModel is contain the key of model
+func isValidFuzzStateModels(t *testing.T, keysModel []string, stateModels []types.Model ) ([]string, bool){
+	tmpKeysModel := keysModel
+	isContainKey := false
+	for _, model := range stateModels {
+		if slices.Contains(keysModel, model.Key.String()) {
+			isContainKey = true
+			break
+		} else {
+			keysModel = append(keysModel, model.Key.String())
+		}
+	}
+	if isContainKey {
+		return tmpKeysModel, false
+	} else {
+		return keysModel, true
+	}
 }
 
 type StakingKeeperMock struct {
