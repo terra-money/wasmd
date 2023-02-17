@@ -1,12 +1,72 @@
 # Changelog
 
 ## [Unreleased](https://github.com/CosmWasm/wasmd/tree/HEAD)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.30.0...HEAD)
+
+## [v0.30.0](https://github.com/CosmWasm/wasmd/tree/v0.30.0) (2022-12-02)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.29.2...v0.30.0)
+* Provide source, builder and codehash information in store code proposal message[\#1072](https://github.com/CosmWasm/wasmd/pull/1072)
+- Upgrade to Go v1.19 [\#1044](https://github.com/CosmWasm/wasmd/pull/1044)
+- Upgrade to Cosmos-sdk to v0.45.11 [/#1096](https://github.com/CosmWasm/wasmd/pull/1096/)
+- Upgrade to IBC v4.2.0 with interchain-accounts v0.2.4 [\#1088](https://github.com/CosmWasm/wasmd/pull/1088)
+- Preserve contract history/ created date on genesis import [\#878](https://github.com/CosmWasm/wasmd/issues/878)
+- Authz module integration - more granularity for WasmExecuteMsg authorizations [\#803](https://github.com/CosmWasm/wasmd/issues/803)
+- StoreAndInstantiate gov proposal [\#785](https://github.com/CosmWasm/wasmd/issues/785)
+- Start developer guide for contributors [\#654](https://github.com/CosmWasm/wasmd/issues/654)
+
+### Notable changes:
+- IBC fee middleware is setup in `app.go`. Please note that it can be enabled with new channels only. A nice read is this [article](https://medium.com/the-interchain-foundation/ibc-relaying-as-a-service-the-in-protocol-incentivization-story-2c008861a957).
+- Authz for wasm contracts can be granted via `wasmd tx wasm grant` and executed via `wasmd tx authz exec` command  
+- Go v1.19 required to prevent a mixed chain setup with older versions. Just to be on the safe side.
+- Store code proposal types have new metadata fields added that can help to build client side tooling to verify the wasm contract in the proposal 
+
+### Migration notes:
+- See ibc-go [migration notes](https://github.com/cosmos/ibc-go/blob/v4.2.0/docs/migrations)
+- See interchain-accounts [`MsgRegisterAccount.Version` field](https://github.com/cosmos/interchain-accounts-demo/compare/v0.1.0...v0.2.4#diff-ac8bca25810de6d3eef95f74fc9acf2223f3687822e6227b584e0d3b40db6566). Full diff [v0.1.0 to v0.2.4](https://github.com/cosmos/interchain-accounts-demo/compare/v0.1.0...v0.2.4)
+
+## [v0.29.2](https://github.com/CosmWasm/wasmd/tree/v0.29.2) (2022-11-08)
+
+- Fixes missing instantiate-anyof-addresses flag declaration for gov [/#1084](https://github.com/CosmWasm/wasmd/issues/1084)
+
+## [v0.29.1](https://github.com/CosmWasm/wasmd/tree/v0.29.1) (2022-10-14)
+
+- Upgrade to Cosmos-sdk to v45.9 [/#1052](https://github.com/CosmWasm/wasmd/pull/1052/)
+
+## [v0.29.0](https://github.com/CosmWasm/wasmd/tree/v0.29.0) (2022-10-10)
+
+[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.28.0...v0.29.0)
+- Add dependencies for protobuf and remove third_party forlder [/#1030](https://github.com/CosmWasm/wasmd/pull/1030)
+- Check wasmvm version on startup [\#1029](https://github.com/CosmWasm/wasmd/pull/1029/) 
+- Allow AccessConfig to use a list of addresses instead of just a single address [\#945](https://github.com/CosmWasm/wasmd/issues/945)
+- Make contract addresses predictable \("deterministic"\) [\#942](https://github.com/CosmWasm/wasmd/issues/942)
+- Add query for the total supply of a coin [\#903](https://github.com/CosmWasm/wasmd/pull/903) ([larry0x](https://github.com/larry0x))
 - Upgrade go to v1.18 [\#866]https://github.com/CosmWasm/wasmd/pull/866/) ([faddat](https://github.com/faddat))
+- Upgrade to ibc-go v3.3.0 REQUIRES [MIGRATION](https://github.com/cosmos/ibc-go/blob/v3.2.3/docs/migrations/support-denoms-with-slashes.md) [\#1016](https://github.com/CosmWasm/wasmd/pull/1016)
 - Upgrade to cosmos-sdk v0.45.8 [\#964](https://github.com/CosmWasm/wasmd/pull/964/) ([faddat](https://github.com/faddat))
+- Upgrade wasmvm to v1.1.1 [\#1012](https://github.com/CosmWasm/wasmd/pull/1012), see [wasmvm v1.1.1](https://github.com/CosmWasm/wasmvm/releases/tag/v1.1.1)
+- Add documentation how to add x/wasm to a new Cosmos SDK chain [\#876](https://github.com/CosmWasm/wasmd/issues/876)
+- Upgrade keyring / go-keychain dependencies (removes deprecate warning) [\#957](https://github.com/CosmWasm/wasmd/issues/957)
+- Make contract pinning an optional field in StoreCode proposals  [\#972](https://github.com/CosmWasm/wasmd/issues/972)
+- Add gRPC query for WASM params [\#889](https://github.com/CosmWasm/wasmd/issues/889)
+- Expose Keepers in app.go? [\#881](https://github.com/CosmWasm/wasmd/issues/881)
+- Remove unused `flagProposalType` flag in gov proposals [\#849](https://github.com/CosmWasm/wasmd/issues/849)
+- Restrict code access config modifications [\#901](https://github.com/CosmWasm/wasmd/pull/901)
+- Prevent migration to a restricted code [\#900](https://github.com/CosmWasm/wasmd/pull/900)
+- Charge gas to unzip wasm code [\#898](https://github.com/CosmWasm/wasmd/pull/898)
 
+### Notable changes:
+- BaseAccount and pruned vesting account types can be re-used for contracts addresses
+- A new [MsgInstantiateContract2](https://github.com/CosmWasm/wasmd/pull/1014/files#diff-bf58b9da4b674719f07dd5421c532c1ead13a15f8896b59c1f724215d2064b73R75) was introduced which is an additional value for `message` type events
+- Store event contains a new attribute with the code checksum now
+- New `wasmd tx wasm instantiate2` CLI command for predictable addresses on instantiation
+- New `cosmwasm_1_1` CosmWasm capability (former "feature") was introduced in [cosmwasm/#1356](https://github.com/CosmWasm/cosmwasm/pull/1356) to support total supply queries 
+- Protobuf files are published to [buf.build](https://buf.build/cosmwasm/wasmd/docs/main:cosmwasm.wasm.v1)
 
+### Migration notes:
+- See ibc-go [migration notes](https://github.com/cosmos/ibc-go/blob/v3.3.0/docs/migrations/support-denoms-with-slashes.md)
 
-[Full Changelog](https://github.com/CosmWasm/wasmd/compare/v0.28.0...HEAD)
 
 ## [v0.28.0](https://github.com/CosmWasm/wasmd/tree/v0.28.0) (2022-07-29)
 

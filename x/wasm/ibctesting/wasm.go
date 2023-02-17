@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	ibctesting "github.com/cosmos/ibc-go/v4/testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/golang/protobuf/proto" //nolint
@@ -62,6 +62,7 @@ func (chain *TestChain) StoreCode(byteCode []byte) types.MsgStoreCodeResponse {
 	var pInstResp types.MsgStoreCodeResponse
 	require.NoError(chain.t, pInstResp.Unmarshal(protoResult.Data[0].Data))
 	require.NotEmpty(chain.t, pInstResp.CodeID)
+	require.NotEmpty(chain.t, pInstResp.Checksum)
 	return pInstResp
 }
 
