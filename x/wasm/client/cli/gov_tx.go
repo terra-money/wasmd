@@ -36,6 +36,9 @@ func ProposalStoreCodeCmd() *cobra.Command {
 			}
 
 			wasmFile, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
 			source, builder, codeHash, err := parseVerificationFlags(wasmFile, cmd.Flags())
 			if err != nil {
 				return err
@@ -214,6 +217,9 @@ func ProposalStoreAndInstantiateContractCmd() *cobra.Command {
 			}
 
 			wasmFile, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
 			source, builder, codeHash, err := parseVerificationFlags(wasmFile, cmd.Flags())
 			if err != nil {
 				return err
