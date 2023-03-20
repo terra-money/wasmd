@@ -52,9 +52,9 @@ func TestGenesisExportImport(t *testing.T) {
 			pinned            bool
 			contractExtension bool
 		)
+		f.Fuzz(&stateModels)
 		f.Fuzz(&codeInfo)
 		f.Fuzz(&contract)
-		f.Fuzz(&stateModels)
 		f.NilChance(0).Fuzz(&history)
 		f.Fuzz(&pinned)
 		f.Fuzz(&contractExtension)

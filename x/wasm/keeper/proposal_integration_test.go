@@ -121,7 +121,7 @@ func TestInstantiateProposal(t *testing.T) {
 		p.CodeID = firstCodeID
 		p.RunAs = oneAddress.String()
 		p.Admin = otherAddress.String()
-		p.Label = "testing"
+		p.Label = "testing" //nolint:goconst
 	})
 	em := sdk.NewEventManager()
 
@@ -535,7 +535,7 @@ func TestSudoProposal(t *testing.T) {
 
 	exampleContract := InstantiateHackatomExampleContract(t, ctx, keepers)
 	contractAddr := exampleContract.Contract
-	_, _, anyAddr := KeyPubAddr()
+	_, _, anyAddr := keyPubAddr()
 
 	// check balance
 	bal := bankKeeper.GetBalance(ctx, contractAddr, "denom")

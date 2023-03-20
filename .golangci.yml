@@ -32,6 +32,9 @@ linters:
 
 issues:
   exclude-rules:
+    - text: "use RegisterServices"
+      linters:
+        - staticcheck
     - text: "Error return value of `flagSet.Set` is not checked"
       linters:
         - errcheck

@@ -29,7 +29,7 @@ type StakingInitMsg struct {
 	Decimals  uint8          `json:"decimals"`
 	Validator sdk.ValAddress `json:"validator"`
 	ExitTax   sdk.Dec        `json:"exit_tax"`
-	// MinWithdrawal is uint128 encoded as a string (use sdk.Int?)
+	// MinWithdrawal is uint128 encoded as a string (use math.Int?)
 	MinWithdrawl string `json:"min_withdrawal"`
 }
 
@@ -87,7 +87,7 @@ type InvestmentResponse struct {
 	Owner        sdk.AccAddress `json:"owner"`
 	Validator    sdk.ValAddress `json:"validator"`
 	ExitTax      sdk.Dec        `json:"exit_tax"`
-	// MinWithdrawl is uint128 encoded as a string (use sdk.Int?)
+	// MinWithdrawl is uint128 encoded as a string (use math.Int?)
 	MinWithdrawl string `json:"min_withdrawal"`
 }
 
@@ -131,7 +131,7 @@ func TestInitializeStaking(t *testing.T) {
 	CheckAccount(t, ctx, accKeeper, bankKeeper, creator, deposit)
 
 	// try to register with a validator not on the list and it fails
-	_, _, bob := KeyPubAddr()
+	_, _, bob := keyPubAddr()
 	badInitMsg := StakingInitMsg{
 		Name:         "Missing Validator",
 		Symbol:       "MISS",

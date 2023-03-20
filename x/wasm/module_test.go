@@ -50,7 +50,7 @@ func setupTest(t *testing.T) testData {
 	return data
 }
 
-func KeyPubAddr() (crypto.PrivKey, crypto.PubKey, sdk.AccAddress) {
+func keyPubAddr() (crypto.PrivKey, crypto.PubKey, sdk.AccAddress) {
 	key := ed25519.GenPrivKey()
 	pub := key.PubKey()
 	addr := sdk.AccAddress(pub.Address())
@@ -66,7 +66,7 @@ func mustLoad(path string) []byte {
 }
 
 var (
-	_, _, addrAcc1 = KeyPubAddr()
+	_, _, addrAcc1 = keyPubAddr()
 	addr1          = addrAcc1.String()
 	testContract   = mustLoad("./keeper/testdata/hackatom.wasm")
 	maskContract   = testdata.ReflectContractWasm()
@@ -159,8 +159,8 @@ func TestHandleInstantiate(t *testing.T) {
 	require.NoError(t, err)
 	assertStoreCodeResponse(t, res.Data, 1)
 
-	_, _, bob := KeyPubAddr()
-	_, _, fred := KeyPubAddr()
+	_, _, bob := keyPubAddr()
+	_, _, fred := keyPubAddr()
 
 	initMsg := initMsg{
 		Verifier:    fred,
@@ -222,7 +222,7 @@ func TestHandleExecute(t *testing.T) {
 	require.NoError(t, err)
 	assertStoreCodeResponse(t, res.Data, 1)
 
-	_, _, bob := KeyPubAddr()
+	_, _, bob := keyPubAddr()
 	initMsg := initMsg{
 		Verifier:    fred,
 		Beneficiary: bob,
@@ -357,7 +357,7 @@ func TestHandleExecuteEscrow(t *testing.T) {
 	_, err := h(data.ctx, msg)
 	require.NoError(t, err)
 
-	_, _, bob := KeyPubAddr()
+	_, _, bob := keyPubAddr()
 	initMsg := map[string]interface{}{
 		"verifier":    fred.String(),
 		"beneficiary": bob.String(),
