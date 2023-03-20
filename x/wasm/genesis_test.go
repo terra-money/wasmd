@@ -16,8 +16,8 @@ func TestInitGenesis(t *testing.T) {
 	creator := data.faucet.NewFundedRandomAccount(data.ctx, deposit.Add(deposit...)...)
 	fred := data.faucet.NewFundedRandomAccount(data.ctx, topUp...)
 
-	h := data.module.Route().Handler()
-	q := data.module.LegacyQuerierHandler(nil)
+	h := data.module.Route().Handler()         //nolint:staticcheck
+	q := data.module.LegacyQuerierHandler(nil) //nolint:staticcheck
 
 	msg := MsgStoreCode{
 		Sender:       creator.String(),
@@ -30,7 +30,7 @@ func TestInitGenesis(t *testing.T) {
 	require.NoError(t, err)
 	assertStoreCodeResponse(t, res.Data, 1)
 
-	_, _, bob := keyPubAddr()
+	bob := keyPubAddr()
 	initMsg := initMsg{
 		Verifier:    fred,
 		Beneficiary: bob,
@@ -77,7 +77,7 @@ func TestInitGenesis(t *testing.T) {
 
 	// create new app to import genstate into
 	newData := setupTest(t)
-	q2 := newData.module.LegacyQuerierHandler(nil)
+	q2 := newData.module.LegacyQuerierHandler(nil) //nolint:staticcheck
 
 	// initialize new app with genstate
 	_, err = InitGenesis(newData.ctx, &newData.keeper, *genState)

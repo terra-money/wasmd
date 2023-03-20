@@ -121,7 +121,7 @@ func TestInstantiateProposal(t *testing.T) {
 		p.CodeID = firstCodeID
 		p.RunAs = oneAddress.String()
 		p.Admin = otherAddress.String()
-		p.Label = "testing" //nolint:goconst
+		p.Label = myLabel
 	})
 	em := sdk.NewEventManager()
 
@@ -147,7 +147,7 @@ func TestInstantiateProposal(t *testing.T) {
 	assert.Equal(t, uint64(1), cInfo.CodeID)
 	assert.Equal(t, oneAddress.String(), cInfo.Creator)
 	assert.Equal(t, otherAddress.String(), cInfo.Admin)
-	assert.Equal(t, "testing", cInfo.Label)
+	assert.Equal(t, myLabel, cInfo.Label)
 	expHistory := []types.ContractCodeHistoryEntry{{
 		Operation: types.ContractCodeHistoryOperationTypeInit,
 		CodeID:    src.CodeID,
@@ -253,7 +253,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 		p.CodeID = firstCodeID
 		p.RunAs = oneAddress.String()
 		p.Admin = "invalid"
-		p.Label = "testing"
+		p.Label = myLabel
 	})
 	msgContent, err := govv1.NewLegacyContent(src, oneAddress.String())
 	require.NoError(t, err)
@@ -267,7 +267,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 		p.CodeID = firstCodeID
 		p.RunAs = oneAddress.String()
 		p.Admin = ""
-		p.Label = "testing"
+		p.Label = myLabel
 	})
 	em := sdk.NewEventManager()
 	msgContent, err = govv1.NewLegacyContent(src, oneAddress.String())
@@ -291,7 +291,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 	assert.Equal(t, uint64(1), cInfo.CodeID)
 	assert.Equal(t, oneAddress.String(), cInfo.Creator)
 	assert.Equal(t, "", cInfo.Admin)
-	assert.Equal(t, "testing", cInfo.Label)
+	assert.Equal(t, myLabel, cInfo.Label)
 	expHistory := []types.ContractCodeHistoryEntry{{
 		Operation: types.ContractCodeHistoryOperationTypeInit,
 		CodeID:    src.CodeID,
@@ -331,7 +331,7 @@ func TestStoreAndInstantiateContractProposal(t *testing.T) {
 		p.WASMByteCode = wasmCode
 		p.RunAs = oneAddress.String()
 		p.Admin = otherAddress.String()
-		p.Label = "testing"
+		p.Label = myLabel
 		p.CodeHash = checksum
 	})
 	em := sdk.NewEventManager()
@@ -357,7 +357,7 @@ func TestStoreAndInstantiateContractProposal(t *testing.T) {
 	require.NotNil(t, cInfo)
 	assert.Equal(t, oneAddress.String(), cInfo.Creator)
 	assert.Equal(t, otherAddress.String(), cInfo.Admin)
-	assert.Equal(t, "testing", cInfo.Label)
+	assert.Equal(t, myLabel, cInfo.Label)
 	expHistory := []types.ContractCodeHistoryEntry{{
 		Operation: types.ContractCodeHistoryOperationTypeInit,
 		CodeID:    cInfo.CodeID,
@@ -398,7 +398,7 @@ func TestMigrateProposal(t *testing.T) {
 	)
 
 	contractInfo := types.ContractInfoFixture(func(c *types.ContractInfo) {
-		c.Label = "testing"
+		c.Label = myLabel
 		c.Admin = anyAddress.String()
 		c.Created = types.NewAbsoluteTxPosition(ctx)
 	})
@@ -445,7 +445,7 @@ func TestMigrateProposal(t *testing.T) {
 	require.NotNil(t, cInfo)
 	assert.Equal(t, uint64(2), cInfo.CodeID)
 	assert.Equal(t, anyAddress.String(), cInfo.Admin)
-	assert.Equal(t, "testing", cInfo.Label)
+	assert.Equal(t, myLabel, cInfo.Label)
 	expHistory := []types.ContractCodeHistoryEntry{{
 		Operation: types.ContractCodeHistoryOperationTypeInit,
 		CodeID:    firstCodeID,
@@ -498,6 +498,7 @@ func TestExecuteProposal(t *testing.T) {
 	// fails on store - this doesn't have permission
 	_, err = govKeeper.SubmitProposal(ctx, []sdk.Msg{msgContent}, "testing 123")
 	require.Error(t, err)
+
 	// balance should not change
 	bal = bankKeeper.GetBalance(ctx, contractAddr, "denom")
 	require.Equal(t, bal.Amount, sdk.NewInt(100))
@@ -535,7 +536,7 @@ func TestSudoProposal(t *testing.T) {
 
 	exampleContract := InstantiateHackatomExampleContract(t, ctx, keepers)
 	contractAddr := exampleContract.Contract
-	_, _, anyAddr := keyPubAddr()
+	_, anyAddr := keyPubAddr()
 
 	// check balance
 	bal := bankKeeper.GetBalance(ctx, contractAddr, "denom")

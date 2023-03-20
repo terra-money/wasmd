@@ -643,10 +643,7 @@ func ProposalUpdateContractAdminCmd() *cobra.Command {
 				return err
 			}
 
-			src, err := parseUpdateContractAdminArgs(args, clientCtx)
-			if err != nil {
-				return err
-			}
+			src := parseUpdateContractAdminArgs(args, clientCtx)
 
 			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
 			if err != nil {

@@ -39,7 +39,6 @@ func TestICA(t *testing.T) {
 	msg := intertxtypes.NewMsgRegisterAccount(ownerAddr.String(), path.EndpointA.ConnectionID, "")
 	res, err := controllerChain.SendMsgs(msg)
 	require.NoError(t, err)
-
 	chanID, portID, version := parseIBCChannelEvents(t, res)
 
 	// next open channels on both sides
