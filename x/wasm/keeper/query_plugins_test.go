@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	errorsmod "cosmossdk.io/errors"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/store"
@@ -17,7 +18,6 @@ import (
 
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,7 +87,7 @@ func TestIBCQuerier(t *testing.T) {
 		wasmKeeper    *mockWasmQueryKeeper
 		channelKeeper *wasmtesting.MockChannelKeeper
 		expJSONResult string
-		expErr        *sdkerrors.Error
+		expErr        *errorsmod.Error
 	}{
 		"query port id": {
 			srcQuery: &wasmvmtypes.IBCQuery{
@@ -535,7 +535,7 @@ func TestQueryErrors(t *testing.T) {
 			expErr: wasmvmtypes.NoSuchContract{Addr: "contract-addr"},
 		},
 		"no such contract - wrapped": {
-			src:    sdkerrors.Wrap(types.ErrNoSuchContractFn("contract-addr"), "my additional data"),
+			src:    errorsmod.Wrap(types.ErrNoSuchContractFn("contract-addr"), "my additional data"),
 			expErr: wasmvmtypes.NoSuchContract{Addr: "contract-addr"},
 		},
 		"no such code": {
@@ -543,7 +543,7 @@ func TestQueryErrors(t *testing.T) {
 			expErr: wasmvmtypes.NoSuchCode{CodeID: 123},
 		},
 		"no such code - wrapped": {
-			src:    sdkerrors.Wrap(types.ErrNoSuchCodeFn(123), "my additional data"),
+			src:    errorsmod.Wrap(types.ErrNoSuchCodeFn(123), "my additional data"),
 			expErr: wasmvmtypes.NoSuchCode{CodeID: 123},
 		},
 	}

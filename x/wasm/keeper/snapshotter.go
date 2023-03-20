@@ -4,9 +4,9 @@ import (
 	"encoding/hex"
 	"io"
 
+	errorsmod "cosmossdk.io/errors"
 	snapshot "github.com/cosmos/cosmos-sdk/snapshots/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -98,11 +98,11 @@ func (ws *WasmSnapshotter) Restore(
 	return snapshot.SnapshotItem{}, snapshot.ErrUnknownFormat
 }
 
-func (ws *WasmSnapshotter) PruneSnapshotHeight(height int64) {
+func (*WasmSnapshotter) PruneSnapshotHeight(_ int64) {
 	// nothing to do
 }
 
-func (ws *WasmSnapshotter) SetSnapshotInterval(snapshotInterval uint64) {
+func (*WasmSnapshotter) SetSnapshotInterval(_ uint64) {
 	//
 }
 
@@ -112,13 +112,13 @@ func restoreV1(_ sdk.Context, k *Keeper, compressedCode []byte) error {
 	}
 	wasmCode, err := ioutils.Uncompress(compressedCode, uint64(types.MaxWasmSize))
 	if err != nil {
-		return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+		return errorsmod.Wrap(types.ErrCreateFailed, err.Error())
 	}
 
 	// FIXME: check which codeIDs the checksum matches??
 	_, err = k.wasmVM.Create(wasmCode)
 	if err != nil {
-		return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
+		return errorsmod.Wrap(types.ErrCreateFailed, err.Error())
 	}
 	return nil
 }
@@ -145,7 +145,7 @@ func (ws *WasmSnapshotter) processAllItems(
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			return snapshot.SnapshotItem{}, sdkerrors.Wrap(err, "invalid protobuf message")
+			return snapshot.SnapshotItem{}, errorsmod.Wrap(err, "invalid protobuf message")
 		}
 
 		// if it is not another ExtensionPayload message, then it is not for us.
@@ -156,7 +156,7 @@ func (ws *WasmSnapshotter) processAllItems(
 		}
 
 		if err := cb(ctx, ws.wasm, payload.Payload); err != nil {
-			return snapshot.SnapshotItem{}, sdkerrors.Wrap(err, "processing snapshot item")
+			return snapshot.SnapshotItem{}, errorsmod.Wrap(err, "processing snapshot item")
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	errorsmod "cosmossdk.io/errors"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -88,7 +89,7 @@ func (h SDKMessageHandler) handleSdkMessage(ctx sdk.Context, contractAddr sdk.Ad
 	// make sure this account can send it
 	for _, acct := range msg.GetSigners() {
 		if !acct.Equals(contractAddr) {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "contract doesn't have permission")
+			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "contract doesn't have permission")
 		}
 	}
 
@@ -103,7 +104,7 @@ func (h SDKMessageHandler) handleSdkMessage(ctx sdk.Context, contractAddr sdk.Ad
 	// proto messages and has registered all `Msg services`, then this
 	// path should never be called, because all those Msgs should be
 	// registered within the `msgServiceRouter` already.
-	return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "can't route message %+v", msg)
+	return nil, errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "can't route message %+v", msg)
 }
 
 // MessageHandlerChain defines a chain of handlers that are called one by one until it can be handled.
@@ -137,7 +138,7 @@ func (m MessageHandlerChain) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAd
 			return events, data, err
 		}
 	}
-	return nil, nil, sdkerrors.Wrap(types.ErrUnknownMsg, "no handler found")
+	return nil, nil, errorsmod.Wrap(types.ErrUnknownMsg, "no handler found")
 }
 
 // IBCRawPacketHandler handels IBC.SendPacket messages which are published to an IBC channel.
@@ -156,34 +157,34 @@ func (h IBCRawPacketHandler) DispatchMsg(ctx sdk.Context, _ sdk.AccAddress, cont
 		return nil, nil, types.ErrUnknownMsg
 	}
 	if contractIBCPortID == "" {
-		return nil, nil, sdkerrors.Wrapf(types.ErrUnsupportedForContract, "ibc not supported")
+		return nil, nil, errorsmod.Wrapf(types.ErrUnsupportedForContract, "ibc not supported")
 	}
 	contractIBCChannelID := msg.IBC.SendPacket.ChannelID
 	if contractIBCChannelID == "" {
-		return nil, nil, sdkerrors.Wrapf(types.ErrEmpty, "ibc channel")
+		return nil, nil, errorsmod.Wrapf(types.ErrEmpty, "ibc channel")
 	}
 
 	_, found := h.channelKeeper.GetNextSequenceSend(ctx, contractIBCPortID, contractIBCChannelID)
 	if !found {
-		return nil, nil, sdkerrors.Wrapf(channeltypes.ErrSequenceSendNotFound,
+		return nil, nil, errorsmod.Wrapf(channeltypes.ErrSequenceSendNotFound,
 			"source port: %s, source channel: %s", contractIBCPortID, contractIBCChannelID,
 		)
 	}
 
 	channelCap, ok := h.capabilityKeeper.GetCapability(ctx, host.ChannelCapabilityPath(contractIBCPortID, contractIBCChannelID))
 	if !ok {
-		return nil, nil, sdkerrors.Wrap(channeltypes.ErrChannelCapabilityNotFound, "module does not own channel capability")
+		return nil, nil, errorsmod.Wrap(channeltypes.ErrChannelCapabilityNotFound, "module does not own channel capability")
 	}
 
 	sequence, err := h.channelKeeper.SendPacket(ctx, channelCap, contractIBCPortID, contractIBCChannelID, ConvertWasmIBCTimeoutHeightToCosmosHeight(msg.IBC.SendPacket.Timeout.Block), msg.IBC.SendPacket.Timeout.Timestamp, msg.IBC.SendPacket.Data)
 	if err != nil {
-		return nil, nil, sdkerrors.Wrap(err, "failed to send packet")
+		return nil, nil, errorsmod.Wrap(err, "failed to send packet")
 	}
 
 	resp := &types.MsgIBCSendResponse{Sequence: sequence}
 	val, err := resp.Marshal()
 	if err != nil {
-		return nil, nil, sdkerrors.Wrap(err, "failed to marshal IBC send response")
+		return nil, nil, errorsmod.Wrap(err, "failed to marshal IBC send response")
 	}
 
 	return nil, [][]byte{val}, nil
@@ -211,10 +212,10 @@ func NewBurnCoinMessageHandler(burner types.Burner) MessageHandlerFunc {
 				return nil, nil, types.ErrEmpty.Wrap("amount")
 			}
 			if err := burner.SendCoinsFromAccountToModule(ctx, contractAddr, types.ModuleName, coins); err != nil {
-				return nil, nil, sdkerrors.Wrap(err, "transfer to module")
+				return nil, nil, errorsmod.Wrap(err, "transfer to module")
 			}
 			if err := burner.BurnCoins(ctx, types.ModuleName, coins); err != nil {
-				return nil, nil, sdkerrors.Wrap(err, "burn coins")
+				return nil, nil, errorsmod.Wrap(err, "burn coins")
 			}
 			moduleLogger(ctx).Info("Burned", "amount", coins)
 			return nil, nil, nil

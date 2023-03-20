@@ -24,7 +24,7 @@ func CreateTestInput() (*app.WasmApp, sdk.Context) {
 	return osmosis, ctx
 }
 
-func FundAccount(t *testing.T, ctx sdk.Context, osmosis *app.WasmApp, acct sdk.AccAddress) {
+func FundAccount(_ *testing.T, _ sdk.Context, _ *app.WasmApp, _ sdk.AccAddress) {
 	// TODO:
 	// err := simapp.FundAccount(osmosis.BankKeeper, ctx, acct, sdk.NewCoins(
 	// 	sdk.NewCoin("uosmo", sdk.NewInt(10000000000)),

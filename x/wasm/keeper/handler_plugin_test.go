@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	errorsmod "cosmossdk.io/errors"
 	wasmvm "github.com/CosmWasm/wasmvm"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -40,7 +41,7 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 	myMsg := wasmvmtypes.CosmosMsg{Custom: []byte(`{}`)}
 	specs := map[string]struct {
 		handlers  []Messenger
-		expErr    *sdkerrors.Error
+		expErr    *errorsmod.Error
 		expEvents []sdk.Event
 	}{
 		"single handler": {
@@ -120,7 +121,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 	specs := map[string]struct {
 		srcRoute         MessageRouter
 		srcEncoder       CustomEncoder
-		expErr           *sdkerrors.Error
+		expErr           *errorsmod.Error
 		expMsgDispatched int
 	}{
 		"all good": {
@@ -264,7 +265,7 @@ func TestIBCRawPacketHandler(t *testing.T) {
 		chanKeeper    types.ChannelKeeper
 		capKeeper     types.CapabilityKeeper
 		expPacketSent channeltypes.Packet
-		expErr        *sdkerrors.Error
+		expErr        *errorsmod.Error
 	}{
 		"all good": {
 			srcMsg: wasmvmtypes.SendPacketMsg{

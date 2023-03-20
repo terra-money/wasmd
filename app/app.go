@@ -562,7 +562,6 @@ func NewWasmApp(
 		scopedWasmKeeper,
 		app.TransferKeeper,
 		app.MsgServiceRouter(),
-		app.GRPCQueryRouter(),
 		wasmDir,
 		wasmConfig,
 		availableCapabilities,

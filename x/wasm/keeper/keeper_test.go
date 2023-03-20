@@ -34,12 +34,14 @@ import (
 
 	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
+
+	errorsmod "cosmossdk.io/errors"
 )
 
 //go:embed testdata/hackatom.wasm
 var hackatomWasm []byte
 
-const AvailableCapabilities = "iterator,staking,stargate,cosmwasm_1_1"
+const AvailableCapabilities = "iterator,staking,stargate,cosmwasm_1_1,cosmwasm_1_2,tokenfactory"
 
 const myLabel = "testing"
 
@@ -150,7 +152,7 @@ func TestCreateWithParamPermissions(t *testing.T) {
 	specs := map[string]struct {
 		policy      AuthorizationPolicy
 		chainUpload types.AccessConfig
-		expError    *sdkerrors.Error
+		expError    *errorsmod.Error
 	}{
 		"default": {
 			policy:      DefaultAuthorizationPolicy{},
@@ -214,7 +216,7 @@ func TestEnforceValidPermissionsOnCreate(t *testing.T) {
 		// grantedPermission is set iff no error
 		grantedPermission types.AccessConfig
 		// expError is nil iff the request is allowed
-		expError *sdkerrors.Error
+		expError *errorsmod.Error
 	}{
 		"override everybody": {
 			defaultPermssion:    types.AccessTypeEverybody,
@@ -513,7 +515,7 @@ func TestInstantiateWithPermissions(t *testing.T) {
 	specs := map[string]struct {
 		srcPermission types.AccessConfig
 		srcActor      sdk.AccAddress
-		expError      *sdkerrors.Error
+		expError      *errorsmod.Error
 	}{
 		"default": {
 			srcPermission: types.DefaultUploadAccess,
@@ -1142,7 +1144,7 @@ func TestMigrate(t *testing.T) {
 		fromCodeID           uint64
 		toCodeID             uint64
 		migrateMsg           []byte
-		expErr               *sdkerrors.Error
+		expErr               *errorsmod.Error
 		expVerifier          sdk.AccAddress
 		expIBCPort           bool
 		initMsg              []byte
@@ -1615,7 +1617,7 @@ func TestUpdateContractAdmin(t *testing.T) {
 		newAdmin             sdk.AccAddress
 		overrideContractAddr sdk.AccAddress
 		caller               sdk.AccAddress
-		expErr               *sdkerrors.Error
+		expErr               *errorsmod.Error
 	}{
 		"all good with admin set": {
 			instAdmin: fred,
@@ -1684,7 +1686,7 @@ func TestClearContractAdmin(t *testing.T) {
 		instAdmin            sdk.AccAddress
 		overrideContractAddr sdk.AccAddress
 		caller               sdk.AccAddress
-		expErr               *sdkerrors.Error
+		expErr               *errorsmod.Error
 	}{
 		"all good when called by proper admin": {
 			instAdmin: fred,
@@ -2203,7 +2205,7 @@ func TestCoinBurnerPruneBalances(t *testing.T) {
 		setupAcc    func(t *testing.T, ctx sdk.Context) authtypes.AccountI
 		expBalances sdk.Coins
 		expHandled  bool
-		expErr      *sdkerrors.Error
+		expErr      *errorsmod.Error
 	}{
 		"vesting account - all removed": {
 			setupAcc:    func(t *testing.T, ctx sdk.Context) authtypes.AccountI { return myVestingAccount },

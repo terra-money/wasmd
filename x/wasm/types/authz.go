@@ -3,6 +3,7 @@ package types
 import (
 	"strings"
 
+	errorsmod "cosmossdk.io/errors"
 	"github.com/gogo/protobuf/proto"
 
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -109,7 +110,7 @@ func validateGrants(g []ContractGrant) error {
 	}
 	for i, v := range g {
 		if err := v.ValidateBasic(); err != nil {
-			return sdkerrors.Wrapf(err, "position %d", i)
+			return errorsmod.Wrapf(err, "position %d", i)
 		}
 	}
 	// allow multiple grants for a contract:
@@ -146,7 +147,7 @@ func AcceptGrantedMessage[T AuthzableWasmMsg](ctx sdk.Context, grants []Contract
 		result, err := g.GetLimit().Accept(ctx, exec)
 		switch {
 		case err != nil:
-			return authztypes.AcceptResponse{}, sdkerrors.Wrap(err, "limit")
+			return authztypes.AcceptResponse{}, errorsmod.Wrap(err, "limit")
 		case result == nil: // sanity check
 			return authztypes.AcceptResponse{}, sdkerrors.ErrInvalidType.Wrap("limit result must not be nil")
 		case !result.Accepted:
@@ -158,7 +159,7 @@ func AcceptGrantedMessage[T AuthzableWasmMsg](ctx sdk.Context, grants []Contract
 		ok, err := g.GetFilter().Accept(ctx, exec.GetMsg())
 		switch {
 		case err != nil:
-			return authztypes.AcceptResponse{}, sdkerrors.Wrap(err, "filter")
+			return authztypes.AcceptResponse{}, errorsmod.Wrap(err, "filter")
 		case !ok:
 			// no limit update and continue with next grant
 			continue
@@ -229,7 +230,7 @@ func NewContractGrant(contract sdk.AccAddress, limit ContractAuthzLimitX, filter
 	}
 	anyFilter, err := cdctypes.NewAnyWithValue(pFilter)
 	if err != nil {
-		return nil, sdkerrors.Wrap(err, "filter")
+		return nil, errorsmod.Wrap(err, "filter")
 	}
 	return ContractGrant{
 		Contract: contract.String(),
@@ -245,7 +246,7 @@ func (g ContractGrant) WithNewLimits(limit ContractAuthzLimitX) (*ContractGrant,
 	}
 	anyLimit, err := cdctypes.NewAnyWithValue(pLimit)
 	if err != nil {
-		return nil, sdkerrors.Wrap(err, "limit")
+		return nil, errorsmod.Wrap(err, "limit")
 	}
 
 	return &ContractGrant{
@@ -259,11 +260,11 @@ func (g ContractGrant) WithNewLimits(limit ContractAuthzLimitX) (*ContractGrant,
 func (g ContractGrant) UnpackInterfaces(unpacker cdctypes.AnyUnpacker) error {
 	var f ContractAuthzFilterX
 	if err := unpacker.UnpackAny(g.Filter, &f); err != nil {
-		return sdkerrors.Wrap(err, "filter")
+		return errorsmod.Wrap(err, "filter")
 	}
 	var l ContractAuthzLimitX
 	if err := unpacker.UnpackAny(g.Limit, &l); err != nil {
-		return sdkerrors.Wrap(err, "limit")
+		return errorsmod.Wrap(err, "limit")
 	}
 	return nil
 }
@@ -295,15 +296,15 @@ func (g ContractGrant) GetFilter() ContractAuthzFilterX {
 // ValidateBasic validates the grant
 func (g ContractGrant) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(g.Contract); err != nil {
-		return sdkerrors.Wrap(err, "contract")
+		return errorsmod.Wrap(err, "contract")
 	}
 	// execution limits
 	if err := g.GetLimit().ValidateBasic(); err != nil {
-		return sdkerrors.Wrap(err, "limit")
+		return errorsmod.Wrap(err, "limit")
 	}
 	// filter
 	if err := g.GetFilter().ValidateBasic(); err != nil {
-		return sdkerrors.Wrap(err, "filter")
+		return errorsmod.Wrap(err, "filter")
 	}
 	return nil
 }
@@ -528,7 +529,7 @@ func (l CombinedLimit) ValidateBasic() error {
 		return ErrEmpty.Wrap("amounts")
 	}
 	if err := l.Amounts.Validate(); err != nil {
-		return sdkerrors.Wrap(err, "amounts")
+		return errorsmod.Wrap(err, "amounts")
 	}
 	return nil
 }

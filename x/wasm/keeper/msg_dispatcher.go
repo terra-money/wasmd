@@ -64,7 +64,7 @@ func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr
 				panic(r)
 			}
 			ctx.GasMeter().ConsumeGas(gasLimit, "Sub-Message OutOfGas panic")
-			err = sdkerrors.Wrap(sdkerrors.ErrOutOfGas, "SubMsg hit gas limit")
+			err = errorsmod.Wrap(sdkerrors.ErrOutOfGas, "SubMsg hit gas limit")
 		}
 	}()
 	events, data, err = d.messenger.DispatchMsg(subCtx, contractAddr, ibcPort, msg)
@@ -84,7 +84,7 @@ func (d MessageDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr sdk
 		switch msg.ReplyOn {
 		case wasmvmtypes.ReplySuccess, wasmvmtypes.ReplyError, wasmvmtypes.ReplyAlways, wasmvmtypes.ReplyNever:
 		default:
-			return nil, sdkerrors.Wrap(types.ErrInvalid, "replyOn value")
+			return nil, errorsmod.Wrap(types.ErrInvalid, "replyOn value")
 		}
 		// first, we build a sub-context which we can use inside the submessages
 		subCtx, commit := ctx.CacheContext()
@@ -164,7 +164,7 @@ func (d MessageDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr sdk
 		rspData, err := d.keeper.reply(ctx, contractAddr, reply)
 		switch {
 		case err != nil:
-			return nil, sdkerrors.Wrap(err, "reply")
+			return nil, errorsmod.Wrap(err, "reply")
 		case rspData != nil:
 			rsp = rspData
 		}

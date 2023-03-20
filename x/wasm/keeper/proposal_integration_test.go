@@ -1039,8 +1039,8 @@ func TestUpdateInstantiateConfigProposal(t *testing.T) {
 			}
 
 			// when stored
-			message, gotErr := govv1.NewLegacyContent(&proposal, authtypes.NewModuleAddress(govtypes.ModuleName).String())
-			_, gotErr = govKeeper.SubmitProposal(ctx, []sdk.Msg{message}, "")
+			message, _ := govv1.NewLegacyContent(&proposal, authtypes.NewModuleAddress(govtypes.ModuleName).String())
+			_, gotErr := govKeeper.SubmitProposal(ctx, []sdk.Msg{message}, "")
 			if spec.expErr {
 				require.Error(t, gotErr)
 				return

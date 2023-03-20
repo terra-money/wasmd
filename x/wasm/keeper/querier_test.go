@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	errorsmod "cosmossdk.io/errors"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -43,7 +44,7 @@ func TestQueryAllContractState(t *testing.T) {
 		srcQuery            *types.QueryAllContractStateRequest
 		expModelContains    []types.Model
 		expModelContainsNot []types.Model
-		expErr              *sdkErrors.Error
+		expErr              *errorsmod.Error
 	}{
 		"query all": {
 			srcQuery:         &types.QueryAllContractStateRequest{Address: contractAddr.String()},
@@ -168,7 +169,7 @@ func TestQuerySmartContractPanics(t *testing.T) {
 
 	specs := map[string]struct {
 		doInContract func()
-		expErr       *sdkErrors.Error
+		expErr       *errorsmod.Error
 	}{
 		"out of gas": {
 			doInContract: func() {
@@ -217,7 +218,7 @@ func TestQueryRawContractState(t *testing.T) {
 	specs := map[string]struct {
 		srcQuery *types.QueryRawContractStateRequest
 		expData  []byte
-		expErr   *sdkErrors.Error
+		expErr   *errorsmod.Error
 	}{
 		"query raw key": {
 			srcQuery: &types.QueryRawContractStateRequest{Address: contractAddr, QueryData: []byte("foo")},
@@ -614,7 +615,7 @@ func TestQueryPinnedCodes(t *testing.T) {
 	specs := map[string]struct {
 		srcQuery   *types.QueryPinnedCodesRequest
 		expCodeIDs []uint64
-		expErr     *sdkErrors.Error
+		expErr     *errorsmod.Error
 	}{
 		"query all": {
 			srcQuery:   &types.QueryPinnedCodesRequest{},

@@ -50,7 +50,7 @@ func TestWasmdExport(t *testing.T) {
 		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, amount)),
 	}
 
-	genesisState := SetupGenesisValSet(t, valSet, []authtypes.GenesisAccount{acc}, nil, gapp, balance)
+	genesisState := SetupGenesisValSet(t, valSet, []authtypes.GenesisAccount{acc}, gapp, balance)
 	stateBytes, err := json.MarshalIndent(genesisState, "", "  ")
 	require.NoError(t, err)
 
@@ -119,7 +119,7 @@ func TestGetEnabledProposals(t *testing.T) {
 	}
 }
 
-func SetupGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount, opts []wasm.Option, app *WasmApp, balances ...banktypes.Balance) GenesisState {
+func SetupGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount, app *WasmApp, balances ...banktypes.Balance) GenesisState {
 	genesisState := NewDefaultGenesisState()
 	// set genesis accounts
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)

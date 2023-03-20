@@ -3,8 +3,7 @@ package wasm
 import (
 	"math"
 
-	sdkerrors "cosmossdk.io/errors"
-
+	errorsmod "cosmossdk.io/errors"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
@@ -51,7 +50,7 @@ func (i IBCHandler) OnChanOpenInit(
 	}
 	contractAddr, err := ContractFromPortID(portID)
 	if err != nil {
-		return version, sdkerrors.Wrapf(err, "contract port id")
+		return version, errorsmod.Wrapf(err, "contract port id")
 	}
 
 	msg := wasmvmtypes.IBCChannelOpenMsg{
@@ -78,7 +77,7 @@ func (i IBCHandler) OnChanOpenInit(
 
 	// Claim channel capability passed back by IBC module
 	if err := i.keeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-		return version, sdkerrors.Wrap(err, "claim capability")
+		return version, errorsmod.Wrap(err, "claim capability")
 	}
 	return acceptedVersion, nil
 }
@@ -100,7 +99,7 @@ func (i IBCHandler) OnChanOpenTry(
 
 	contractAddr, err := ContractFromPortID(portID)
 	if err != nil {
-		return "", sdkerrors.Wrapf(err, "contract port id")
+		return "", errorsmod.Wrapf(err, "contract port id")
 	}
 
 	msg := wasmvmtypes.IBCChannelOpenMsg{
@@ -132,7 +131,7 @@ func (i IBCHandler) OnChanOpenTry(
 	if !i.keeper.AuthenticateCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)) {
 		// Only claim channel capability passed back by IBC module if we do not already own it
 		if err := i.keeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-			return "", sdkerrors.Wrap(err, "claim capability")
+			return "", errorsmod.Wrap(err, "claim capability")
 		}
 	}
 
@@ -148,17 +147,17 @@ func (i IBCHandler) OnChanOpenAck(
 ) error {
 	contractAddr, err := ContractFromPortID(portID)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "contract port id")
+		return errorsmod.Wrapf(err, "contract port id")
 	}
 	channelInfo, ok := i.channelKeeper.GetChannel(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 	channelInfo.Counterparty.ChannelId = counterpartyChannelID
 
 	appVersion, ok := i.appVersionGetter.GetAppVersion(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 
 	msg := wasmvmtypes.IBCChannelConnectMsg{
@@ -174,15 +173,15 @@ func (i IBCHandler) OnChanOpenAck(
 func (i IBCHandler) OnChanOpenConfirm(ctx sdk.Context, portID, channelID string) error {
 	contractAddr, err := ContractFromPortID(portID)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "contract port id")
+		return errorsmod.Wrapf(err, "contract port id")
 	}
 	channelInfo, ok := i.channelKeeper.GetChannel(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 	appVersion, ok := i.appVersionGetter.GetAppVersion(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 	msg := wasmvmtypes.IBCChannelConnectMsg{
 		OpenConfirm: &wasmvmtypes.IBCOpenConfirm{
@@ -196,15 +195,15 @@ func (i IBCHandler) OnChanOpenConfirm(ctx sdk.Context, portID, channelID string)
 func (i IBCHandler) OnChanCloseInit(ctx sdk.Context, portID, channelID string) error {
 	contractAddr, err := ContractFromPortID(portID)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "contract port id")
+		return errorsmod.Wrapf(err, "contract port id")
 	}
 	channelInfo, ok := i.channelKeeper.GetChannel(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 	appVersion, ok := i.appVersionGetter.GetAppVersion(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 
 	msg := wasmvmtypes.IBCChannelCloseMsg{
@@ -224,15 +223,15 @@ func (i IBCHandler) OnChanCloseConfirm(ctx sdk.Context, portID, channelID string
 	// counterparty has closed the channel
 	contractAddr, err := ContractFromPortID(portID)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "contract port id")
+		return errorsmod.Wrapf(err, "contract port id")
 	}
 	channelInfo, ok := i.channelKeeper.GetChannel(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 	appVersion, ok := i.appVersionGetter.GetAppVersion(ctx, portID, channelID)
 	if !ok {
-		return sdkerrors.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
+		return errorsmod.Wrapf(channeltypes.ErrInvalidChannelVersion, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 
 	msg := wasmvmtypes.IBCChannelCloseMsg{
@@ -265,7 +264,7 @@ func (i IBCHandler) OnRecvPacket(
 ) ibcexported.Acknowledgement {
 	contractAddr, err := ContractFromPortID(packet.DestinationPort)
 	if err != nil {
-		return channeltypes.NewErrorAcknowledgement(sdkerrors.Wrapf(err, "contract port id"))
+		return channeltypes.NewErrorAcknowledgement(errorsmod.Wrapf(err, "contract port id"))
 	}
 	msg := wasmvmtypes.IBCPacketReceiveMsg{Packet: newIBCPacket(packet), Relayer: relayer.String()}
 	ack, err := i.keeper.OnRecvPacket(ctx, contractAddr, msg)
@@ -296,7 +295,7 @@ func (i IBCHandler) OnAcknowledgementPacket(
 ) error {
 	contractAddr, err := ContractFromPortID(packet.SourcePort)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "contract port id")
+		return errorsmod.Wrapf(err, "contract port id")
 	}
 
 	err = i.keeper.OnAckPacket(ctx, contractAddr, wasmvmtypes.IBCPacketAckMsg{
@@ -305,7 +304,7 @@ func (i IBCHandler) OnAcknowledgementPacket(
 		Relayer:         relayer.String(),
 	})
 	if err != nil {
-		return sdkerrors.Wrap(err, "on ack")
+		return errorsmod.Wrap(err, "on ack")
 	}
 	return nil
 }
@@ -314,12 +313,12 @@ func (i IBCHandler) OnAcknowledgementPacket(
 func (i IBCHandler) OnTimeoutPacket(ctx sdk.Context, packet channeltypes.Packet, relayer sdk.AccAddress) error {
 	contractAddr, err := ContractFromPortID(packet.SourcePort)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "contract port id")
+		return errorsmod.Wrapf(err, "contract port id")
 	}
 	msg := wasmvmtypes.IBCPacketTimeoutMsg{Packet: newIBCPacket(packet), Relayer: relayer.String()}
 	err = i.keeper.OnTimeoutPacket(ctx, contractAddr, msg)
 	if err != nil {
-		return sdkerrors.Wrap(err, "on timeout")
+		return errorsmod.Wrap(err, "on timeout")
 	}
 	return nil
 }
@@ -352,7 +351,7 @@ func ValidateChannelParams(channelID string) error {
 		return err
 	}
 	if channelSequence > math.MaxUint32 {
-		return sdkerrors.Wrapf(types.ErrMaxIBCChannels, "channel sequence %d is greater than max allowed transfer channels %d", channelSequence, math.MaxUint32)
+		return errorsmod.Wrapf(types.ErrMaxIBCChannels, "channel sequence %d is greater than max allowed transfer channels %d", channelSequence, math.MaxUint32)
 	}
 	return nil
 }

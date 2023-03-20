@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -39,24 +40,24 @@ func NewLegacyQuerier(keeper types.ViewKeeper, gasLimit sdk.Gas) sdk.Querier {
 		case QueryGetContract:
 			addr, addrErr := sdk.AccAddressFromBech32(path[1])
 			if addrErr != nil {
-				return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, addrErr.Error())
+				return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, addrErr.Error())
 			}
 			rsp, err = queryContractInfo(ctx, addr, keeper)
 		case QueryListContractByCode:
 			codeID, parseErr := strconv.ParseUint(path[1], 10, 64)
 			if parseErr != nil {
-				return nil, sdkerrors.Wrapf(types.ErrInvalid, "code id: %s", parseErr.Error())
+				return nil, errorsmod.Wrapf(types.ErrInvalid, "code id: %s", parseErr.Error())
 			}
 			rsp = queryContractListByCode(ctx, codeID, keeper)
 		case QueryGetContractState:
 			if len(path) < 3 {
-				return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "unknown data query endpoint")
+				return nil, errorsmod.Wrap(sdkerrors.ErrUnknownRequest, "unknown data query endpoint")
 			}
 			return queryContractState(ctx, path[1], path[2], req.Data, gasLimit, keeper)
 		case QueryGetCode:
 			codeID, parseErr := strconv.ParseUint(path[1], 10, 64)
 			if parseErr != nil {
-				return nil, sdkerrors.Wrapf(types.ErrInvalid, "code id: %s", parseErr.Error())
+				return nil, errorsmod.Wrapf(types.ErrInvalid, "code id: %s", parseErr.Error())
 			}
 			rsp, err = queryCode(ctx, codeID, keeper)
 		case QueryListCode:
@@ -64,11 +65,11 @@ func NewLegacyQuerier(keeper types.ViewKeeper, gasLimit sdk.Gas) sdk.Querier {
 		case QueryContractHistory:
 			contractAddr, addrErr := sdk.AccAddressFromBech32(path[1])
 			if addrErr != nil {
-				return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, addrErr.Error())
+				return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, addrErr.Error())
 			}
 			rsp = queryContractHistory(ctx, contractAddr, keeper)
 		default:
-			return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "unknown data query endpoint")
+			return nil, errorsmod.Wrap(sdkerrors.ErrUnknownRequest, "unknown data query endpoint")
 		}
 		if err != nil {
 			return nil, err
@@ -78,7 +79,7 @@ func NewLegacyQuerier(keeper types.ViewKeeper, gasLimit sdk.Gas) sdk.Querier {
 		}
 		bz, err := json.MarshalIndent(rsp, "", "  ")
 		if err != nil {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
+			return nil, errorsmod.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 		}
 		return bz, nil
 	}
@@ -87,7 +88,7 @@ func NewLegacyQuerier(keeper types.ViewKeeper, gasLimit sdk.Gas) sdk.Querier {
 func queryContractState(ctx sdk.Context, bech, queryMethod string, data []byte, gasLimit sdk.Gas, keeper types.ViewKeeper) (json.RawMessage, error) {
 	contractAddr, err := sdk.AccAddressFromBech32(bech)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, bech)
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, bech)
 	}
 
 	switch queryMethod {
@@ -100,7 +101,7 @@ func queryContractState(ctx sdk.Context, bech, queryMethod string, data []byte, 
 		})
 		bz, err := json.Marshal(resultData)
 		if err != nil {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
+			return nil, errorsmod.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 		}
 		return bz, nil
 	case QueryMethodContractStateRaw:
@@ -111,13 +112,13 @@ func queryContractState(ctx sdk.Context, bech, queryMethod string, data []byte, 
 		ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimit))
 		msg := types.RawContractMessage(data)
 		if err := msg.ValidateBasic(); err != nil {
-			return nil, sdkerrors.Wrap(err, "json msg")
+			return nil, errorsmod.Wrap(err, "json msg")
 		}
 		// this returns raw bytes (must be base64-encoded)
 		bz, err := keeper.QuerySmart(ctx, contractAddr, msg)
 		return bz, err
 	default:
-		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, queryMethod)
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnknownRequest, queryMethod)
 	}
 }
 
