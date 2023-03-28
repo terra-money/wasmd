@@ -111,7 +111,6 @@ func parseStoreCodeArgs(file string, sender sdk.AccAddress, flags *flag.FlagSet)
 	}
 
 	// gzip the wasm file
-	var err error
 	if ioutils.IsWasm(wasm) {
 		wasm, err = ioutils.GzipIt(wasm)
 
