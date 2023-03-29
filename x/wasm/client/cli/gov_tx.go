@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
@@ -38,15 +37,7 @@ func ProposalStoreCodeCmd() *cobra.Command {
 				return err
 			}
 
-			wasmFile, err := os.ReadFile(args[0])
-			if err != nil {
-				return err
-			}
-			source, builder, codeHash, err := parseVerificationFlags(wasmFile, cmd.Flags())
-			if err != nil {
-				return err
-			}
-			src, err := parseStoreCodeArgs(wasmFile, clientCtx.FromAddress, cmd.Flags())
+			src, err := parseStoreCodeArgs(args[0], clientCtx.FromAddress, cmd.Flags())
 			if err != nil {
 				return err
 			}
@@ -63,6 +54,10 @@ func ProposalStoreCodeCmd() *cobra.Command {
 				return err
 			}
 
+			source, builder, codeHash, err := parseVerificationFlags(src.WASMByteCode, cmd.Flags())
+			if err != nil {
+				return err
+			}
 			content := types.StoreCodeProposal{
 				Title:                 proposalTitle,
 				Description:           proposalDescr,
@@ -285,15 +280,7 @@ func ProposalStoreAndInstantiateContractCmd() *cobra.Command {
 				return err
 			}
 
-			wasmFile, err := os.ReadFile(args[0])
-			if err != nil {
-				return err
-			}
-			source, builder, codeHash, err := parseVerificationFlags(wasmFile, cmd.Flags())
-			if err != nil {
-				return err
-			}
-			src, err := parseStoreCodeArgs(wasmFile, clientCtx.FromAddress, cmd.Flags())
+			src, err := parseStoreCodeArgs(args[0], clientCtx.FromAddress, cmd.Flags())
 			if err != nil {
 				return err
 			}
@@ -342,6 +329,10 @@ func ProposalStoreAndInstantiateContractCmd() *cobra.Command {
 				return fmt.Errorf("you set an admin and passed --no-admin, those cannot both be true")
 			}
 
+			source, builder, codeHash, err := parseVerificationFlags(src.WASMByteCode, cmd.Flags())
+			if err != nil {
+				return err
+			}
 			if adminStr != "" {
 				addr, err := sdk.AccAddressFromBech32(adminStr)
 				if err != nil {

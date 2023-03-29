@@ -82,11 +82,7 @@ func StoreCodeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			wasmFile, err := os.ReadFile(args[0])
-			if err != nil {
-				return err
-			}
-			msg, err := parseStoreCodeArgs(wasmFile, clientCtx.GetFromAddress(), cmd.Flags())
+			msg, err := parseStoreCodeArgs(args[0], clientCtx.GetFromAddress(), cmd.Flags())
 			if err != nil {
 				return err
 			}
