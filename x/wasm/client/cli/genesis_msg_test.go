@@ -43,7 +43,8 @@ func TestGenesisStoreCodeCmd(t *testing.T) {
 	}
 	anyValidWasmFile, err := os.CreateTemp(t.TempDir(), "wasm")
 	require.NoError(t, err)
-	anyValidWasmFile.Write(wasmIdent)
+	_, err = anyValidWasmFile.Write(wasmIdent)
+	require.NoError(t, err)
 	require.NoError(t, anyValidWasmFile.Close())
 
 	specs := map[string]struct {
@@ -110,7 +111,8 @@ func TestInstantiateContractCmd(t *testing.T) {
 	}
 	anyValidWasmFile, err := os.CreateTemp(t.TempDir(), "wasm")
 	require.NoError(t, err)
-	anyValidWasmFile.Write(wasmIdent)
+	_, err = anyValidWasmFile.Write(wasmIdent)
+	require.NoError(t, err)
 	require.NoError(t, anyValidWasmFile.Close())
 
 	specs := map[string]struct {
@@ -369,7 +371,8 @@ func TestExecuteContractCmd(t *testing.T) {
 	}
 	anyValidWasmFile, err := os.CreateTemp(t.TempDir(), "wasm")
 	require.NoError(t, err)
-	anyValidWasmFile.Write(wasmIdent)
+	_, err = anyValidWasmFile.Write(wasmIdent)
+	require.NoError(t, err)
 	require.NoError(t, anyValidWasmFile.Close())
 
 	specs := map[string]struct {
@@ -712,7 +715,7 @@ func executeCmdWithContext(t *testing.T, homeDir string, cmd *cobra.Command) err
 	flagSet.Set(flags.FlagKeyringBackend, keyring.BackendTest)
 
 	mockIn := testutil.ApplyMockIODiscardOutErr(cmd)
-	kb, err := keyring.New(sdk.KeyringServiceName(), keyring.BackendTest, homeDir, mockIn)
+	kb, err := keyring.New(sdk.KeyringServiceName(), keyring.BackendTest, homeDir, mockIn, clientCtx.Codec)
 	require.NoError(t, err)
 	_, err = kb.NewAccount(defaultTestKeyName, testdata.TestMnemonic, "", sdk.FullFundraiserPath, hd.Secp256k1)
 	require.NoError(t, err)

@@ -15,7 +15,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/gov/client/cli"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
@@ -29,7 +29,7 @@ func ProposalStoreCodeCmd() *cobra.Command {
 		Short: "Submit a wasm binary proposal",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
@@ -44,6 +44,22 @@ func ProposalStoreCodeCmd() *cobra.Command {
 			}
 			if len(runAs) == 0 {
 				return errors.New("run-as address is required")
+			}
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return err
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
+			if err != nil {
+				return err
 			}
 
 			unpinCode, err := cmd.Flags().GetBool(flagUnpinCode)
@@ -77,7 +93,6 @@ func ProposalStoreCodeCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 
 	cmd.Flags().String(flagRunAs, "", "The address that is stored as code creator")
@@ -91,9 +106,12 @@ func ProposalStoreCodeCmd() *cobra.Command {
 	cmd.Flags().BytesHex(flagCodeHash, nil, "CodeHash is the sha256 hash of the wasm code")
 
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -145,7 +163,7 @@ func ProposalInstantiateContractCmd() *cobra.Command {
 		Short: "Submit an instantiate wasm contract proposal",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
@@ -161,6 +179,22 @@ func ProposalInstantiateContractCmd() *cobra.Command {
 			}
 			if len(runAs) == 0 {
 				return errors.New("run-as address is required")
+			}
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return err
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
+			if err != nil {
+				return err
 			}
 
 			content := types.InstantiateContractProposal{
@@ -184,7 +218,6 @@ func ProposalInstantiateContractCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 	cmd.Flags().String(flagAmount, "", "Coins to send to the contract during instantiation")
 	cmd.Flags().String(flagLabel, "", "A human-readable name for this contract in lists")
@@ -193,9 +226,12 @@ func ProposalInstantiateContractCmd() *cobra.Command {
 	cmd.Flags().Bool(flagNoAdmin, false, "You must set this explicitly if you don't want an admin")
 
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -309,8 +345,8 @@ func ProposalStoreAndInstantiateContractCmd() *cobra.Command {
 	cmd.Flags().Bool(flagNoAdmin, false, "You must set this explicitly if you don't want an admin")
 
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck // SA1019: cli.FlagTitle is deprecated: use FlagTitle
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck // SA1019: cli.FlagDescription is deprecated: use FlagDescription
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
 	return cmd
 }
@@ -321,12 +357,29 @@ func ProposalMigrateContractCmd() *cobra.Command {
 		Short: "Submit a migrate wasm contract to a new code version proposal",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
 
 			src, err := parseMigrateContractArgs(args, clientCtx)
+			if err != nil {
+				return err
+			}
+
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return err
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
 			if err != nil {
 				return err
 			}
@@ -349,13 +402,15 @@ func ProposalMigrateContractCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -365,7 +420,7 @@ func ProposalExecuteContractCmd() *cobra.Command {
 		Short: "Submit a execute wasm contract proposal (run by any address)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
@@ -388,6 +443,22 @@ func ProposalExecuteContractCmd() *cobra.Command {
 			if len(runAs) == 0 {
 				return errors.New("run-as address is required")
 			}
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return err
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
+			if err != nil {
+				return err
+			}
 
 			content := types.ExecuteContractProposal{
 				Title:       proposalTitle,
@@ -408,15 +479,17 @@ func ProposalExecuteContractCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 	cmd.Flags().String(flagRunAs, "", "The address that is passed as sender to the contract on proposal execution")
 	cmd.Flags().String(flagAmount, "", "Coins to send to the contract during instantiation")
 
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -426,13 +499,30 @@ func ProposalSudoContractCmd() *cobra.Command {
 		Short: "Submit a sudo wasm contract proposal (to call privileged commands)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
 
 			contract := args[0]
 			sudoMsg := []byte(args[1])
+
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return err
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
+			if err != nil {
+				return err
+			}
 
 			content := types.SudoContractProposal{
 				Title:       proposalTitle,
@@ -451,13 +541,15 @@ func ProposalSudoContractCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 
 	// proposal flagsExecute
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -467,12 +559,29 @@ func ProposalUpdateContractAdminCmd() *cobra.Command {
 		Short: "Submit a new admin for a contract proposal",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
 
 			src, err := parseUpdateContractAdminArgs(args, clientCtx)
+			if err != nil {
+				return err
+			}
+
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return fmt.Errorf("deposit: %s", err)
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
 			if err != nil {
 				return err
 			}
@@ -494,12 +603,14 @@ func ProposalUpdateContractAdminCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -509,7 +620,24 @@ func ProposalClearContractAdminCmd() *cobra.Command {
 		Short: "Submit a clear admin for a contract to prevent further migrations proposal",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return fmt.Errorf("deposit: %s", err)
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
 			if err != nil {
 				return err
 			}
@@ -530,12 +658,14 @@ func ProposalClearContractAdminCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -545,11 +675,27 @@ func ProposalPinCodesCmd() *cobra.Command {
 		Short: "Submit a pin code proposal for pinning a code to cache",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
 
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return fmt.Errorf("deposit: %s", err)
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
+			if err != nil {
+				return err
+			}
 			codeIds, err := parsePinCodesArgs(args)
 			if err != nil {
 				return err
@@ -571,12 +717,14 @@ func ProposalPinCodesCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -598,11 +746,27 @@ func ProposalUnpinCodesCmd() *cobra.Command {
 		Short: "Submit a unpin code proposal for unpinning a code to cache",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, _, _, _, err := getProposalInfo(cmd)
 			if err != nil {
 				return err
 			}
 
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return fmt.Errorf("deposit: %s", err)
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
+			if err != nil {
+				return err
+			}
 			codeIds, err := parsePinCodesArgs(args)
 			if err != nil {
 				return err
@@ -624,12 +788,14 @@ func ProposalUnpinCodesCmd() *cobra.Command {
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -699,7 +865,24 @@ Example:
 $ %s tx gov submit-proposal update-instantiate-config 1:nobody 2:everybody 3:%s1l2rsakp388kuv9k8qzq6lrm9taddae7fpx59wm,%s1vx8knpllrj7n963p9ttd80w47kpacrhuts497x
 `, version.AppName, bech32Prefix, bech32Prefix)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, proposalTitle, proposalDescr, deposit, err := getProposalInfo(cmd)
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal title: %s", err)
+			}
+			proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck
+			if err != nil {
+				return fmt.Errorf("proposal description: %s", err)
+			}
+			depositArg, err := cmd.Flags().GetString(cli.FlagDeposit)
+			if err != nil {
+				return fmt.Errorf("deposit: %s", err)
+			}
+			deposit, err := sdk.ParseCoinsNormalized(depositArg)
 			if err != nil {
 				return err
 			}
@@ -723,12 +906,14 @@ $ %s tx gov submit-proposal update-instantiate-config 1:nobody 2:everybody 3:%s1
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
-		SilenceUsage: true,
 	}
 	// proposal flags
-	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")
-	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal")
+	cmd.Flags().String(cli.FlagTitle, "", "Title of proposal")             //nolint:staticcheck
+	cmd.Flags().String(cli.FlagDescription, "", "Description of proposal") //nolint:staticcheck
 	cmd.Flags().String(cli.FlagDeposit, "", "Deposit of proposal")
+	cmd.Flags().String(cli.FlagProposal, "", "Proposal file path (if this path is given, other proposal flags are ignored)") //nolint:staticcheck
+	// type values must match the "ProposalHandler" "routes" in cli
+	cmd.Flags().String(cli.FlagProposalType, "", "Permission of proposal, types: store-code/instantiate/migrate/update-admin/clear-admin/text/parameter_change/software_upgrade") //nolint:staticcheck
 	return cmd
 }
 
@@ -738,12 +923,12 @@ func getProposalInfo(cmd *cobra.Command) (client.Context, string, string, sdk.Co
 		return client.Context{}, "", "", nil, err
 	}
 
-	proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle)
+	proposalTitle, err := cmd.Flags().GetString(cli.FlagTitle) //nolint:staticcheck // SA1019: cli.FlagTitle is deprecated: use FlagTitle instead. (staticcheck)
 	if err != nil {
 		return clientCtx, proposalTitle, "", nil, err
 	}
 
-	proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription)
+	proposalDescr, err := cmd.Flags().GetString(cli.FlagDescription) //nolint:staticcheck // SA1019: cli.FlagDescription is deprecated: use FlagDescription instead. (staticcheck)
 	if err != nil {
 		return client.Context{}, proposalTitle, proposalDescr, nil, err
 	}

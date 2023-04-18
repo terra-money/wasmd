@@ -28,9 +28,24 @@ const (
 	DefaultWeightMsgClearAdmin          int = 10
 	DefaultWeightMsgMigrateContract     int = 50
 
-	DefaultWeightStoreCodeProposal           int = 5
-	DefaultWeightInstantiateContractProposal int = 5
-	DefaultWeightUpdateAdminProposal         int = 5
-	DefaultWeightExecuteContractProposal     int = 5
-	DefaultWeightClearAdminProposal          int = 5
+	DefaultWeightStoreCodeProposal                   int = 5
+	DefaultWeightInstantiateContractProposal         int = 5
+	DefaultWeightUpdateAdminProposal                 int = 5
+	DefaultWeightExecuteContractProposal             int = 5
+	DefaultWeightClearAdminProposal                  int = 5
+	DefaultWeightMigrateContractProposal             int = 5
+	DefaultWeightSudoContractProposal                int = 5
+	DefaultWeightPinCodesProposal                    int = 5
+	DefaultWeightUnpinCodesProposal                  int = 5
+	DefaultWeightUpdateInstantiateConfigProposal     int = 5
+	DefaultWeightStoreAndInstantiateContractProposal int = 5
+)
+
+// Token Factory Weights
+const (
+	DefaultWeightMsgCreateDenom      int = 100
+	DefaultWeightMsgMint             int = 100
+	DefaultWeightMsgBurn             int = 100
+	DefaultWeightMsgChangeAdmin      int = 100
+	DefaultWeightMsgSetDenomMetadata int = 100
 )
