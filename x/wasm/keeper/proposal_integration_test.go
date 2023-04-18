@@ -5,59 +5,77 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"os"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/x/params/client/utils"
-
 	wasmvm "github.com/CosmWasm/wasmvm"
-
-	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/cosmos/cosmos-sdk/x/params/client/utils"
 	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
 func TestStoreCodeProposal(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, "staking")
+	parentCtx, keepers := CreateTestInput(t, false, "staking")
 	govKeeper, wasmKeeper := keepers.GovKeeper, keepers.WasmKeeper
-	wasmKeeper.SetParams(ctx, types.Params{
+	wasmKeeper.SetParams(parentCtx, types.Params{
 		CodeUploadAccess:             types.AllowNobody,
 		InstantiateDefaultPermission: types.AccessTypeNobody,
 	})
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
+	require.NoError(t, err)
+	checksum, err := hex.DecodeString("13a1fc994cc6d1c81b746ee0c0ff6f90043875e0bf1d9be6b7d779fc978dc2a5")
 	require.NoError(t, err)
 
-	myActorAddress := RandomBech32AccountAddress(t)
+	specs := map[string]struct {
+		codeID    int64
+		unpinCode bool
+	}{
+		"upload with pinning (default)": {
+			unpinCode: false,
+		},
+		"upload with code unpin": {
+			unpinCode: true,
+		},
+	}
 
-	src := types.StoreCodeProposalFixture(func(p *types.StoreCodeProposal) {
-		p.RunAs = myActorAddress
-		p.WASMByteCode = wasmCode
-	})
+	for msg, spec := range specs {
+		t.Run(msg, func(t *testing.T) {
+			ctx, _ := parentCtx.CacheContext()
+			myActorAddress := RandomBech32AccountAddress(t)
 
-	// when stored
-	storedProposal, err := govKeeper.SubmitProposal(ctx, src)
-	require.NoError(t, err)
+			src := types.StoreCodeProposalFixture(func(p *types.StoreCodeProposal) {
+				p.RunAs = myActorAddress
+				p.WASMByteCode = wasmCode
+				p.UnpinCode = spec.unpinCode
+				p.CodeHash = checksum
+			})
 
-	// and proposal execute
-	handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
-	err = handler(ctx, storedProposal.GetContent())
-	require.NoError(t, err)
+			// when stored
+			storedProposal, err := govKeeper.SubmitProposal(ctx, src)
+			require.NoError(t, err)
 
-	// then
-	cInfo := wasmKeeper.GetCodeInfo(ctx, 1)
-	require.NotNil(t, cInfo)
-	assert.Equal(t, myActorAddress, cInfo.Creator)
-	assert.True(t, wasmKeeper.IsPinnedCode(ctx, 1))
+			// and proposal execute
+			handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
+			err = handler(ctx, storedProposal.GetContent())
+			require.NoError(t, err)
 
-	storedCode, err := wasmKeeper.GetByteCode(ctx, 1)
-	require.NoError(t, err)
-	assert.Equal(t, wasmCode, storedCode)
+			// then
+			cInfo := wasmKeeper.GetCodeInfo(ctx, 1)
+			require.NotNil(t, cInfo)
+			assert.Equal(t, myActorAddress, cInfo.Creator)
+			assert.Equal(t, !spec.unpinCode, wasmKeeper.IsPinnedCode(ctx, 1))
+
+			storedCode, err := wasmKeeper.GetByteCode(ctx, 1)
+			require.NoError(t, err)
+			assert.Equal(t, wasmCode, storedCode)
+		})
+	}
 }
 
 func TestInstantiateProposal(t *testing.T) {
@@ -68,7 +86,7 @@ func TestInstantiateProposal(t *testing.T) {
 		InstantiateDefaultPermission: types.AccessTypeNobody,
 	})
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	require.NoError(t, wasmKeeper.importCode(ctx, 1,
@@ -131,7 +149,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 		InstantiateDefaultPermission: types.AccessTypeNobody,
 	})
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	require.NoError(t, wasmKeeper.importCode(ctx, 1,
@@ -195,6 +213,70 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 	require.NotEmpty(t, em.Events()[2].Attributes[0])
 }
 
+func TestStoreAndInstantiateContractProposal(t *testing.T) {
+	ctx, keepers := CreateTestInput(t, false, "staking")
+	govKeeper, wasmKeeper := keepers.GovKeeper, keepers.WasmKeeper
+	wasmKeeper.SetParams(ctx, types.Params{
+		CodeUploadAccess:             types.AllowNobody,
+		InstantiateDefaultPermission: types.AccessTypeNobody,
+	})
+
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
+	require.NoError(t, err)
+
+	checksum, err := hex.DecodeString("13a1fc994cc6d1c81b746ee0c0ff6f90043875e0bf1d9be6b7d779fc978dc2a5")
+	require.NoError(t, err)
+
+	var (
+		oneAddress   sdk.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
+		otherAddress sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
+	)
+
+	src := types.StoreAndInstantiateContractProposalFixture(func(p *types.StoreAndInstantiateContractProposal) {
+		p.WASMByteCode = wasmCode
+		p.RunAs = oneAddress.String()
+		p.Admin = otherAddress.String()
+		p.Label = "testing"
+		p.CodeHash = checksum
+	})
+	em := sdk.NewEventManager()
+
+	// when stored
+	storedProposal, err := govKeeper.SubmitProposal(ctx, src)
+	require.NoError(t, err)
+
+	// and proposal execute
+	handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
+	err = handler(ctx.WithEventManager(em), storedProposal.GetContent())
+	require.NoError(t, err)
+
+	// then
+	contractAddr, err := sdk.AccAddressFromBech32("cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr")
+	require.NoError(t, err)
+
+	cInfo := wasmKeeper.GetContractInfo(ctx, contractAddr)
+	require.NotNil(t, cInfo)
+	assert.Equal(t, oneAddress.String(), cInfo.Creator)
+	assert.Equal(t, otherAddress.String(), cInfo.Admin)
+	assert.Equal(t, "testing", cInfo.Label)
+	expHistory := []types.ContractCodeHistoryEntry{{
+		Operation: types.ContractCodeHistoryOperationTypeInit,
+		CodeID:    cInfo.CodeID,
+		Updated:   types.NewAbsoluteTxPosition(ctx),
+		Msg:       src.Msg,
+	}}
+	assert.Equal(t, expHistory, wasmKeeper.GetContractHistory(ctx, contractAddr))
+	// and event
+	require.Len(t, em.Events(), 5, "%#v", em.Events())
+	require.Equal(t, types.EventTypeStoreCode, em.Events()[0].Type)
+	require.Equal(t, types.EventTypePinCode, em.Events()[1].Type)
+	require.Equal(t, types.EventTypeInstantiate, em.Events()[2].Type)
+	require.Equal(t, types.WasmModuleEventType, em.Events()[3].Type)
+	require.Equal(t, types.EventTypeGovContractResult, em.Events()[4].Type)
+	require.Len(t, em.Events()[4].Attributes, 1)
+	require.NotEmpty(t, em.Events()[4].Attributes[0])
+}
+
 func TestMigrateProposal(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, "staking")
 	govKeeper, wasmKeeper := keepers.GovKeeper, keepers.WasmKeeper
@@ -203,7 +285,7 @@ func TestMigrateProposal(t *testing.T) {
 		InstantiateDefaultPermission: types.AccessTypeNobody,
 	})
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	codeInfoFixture := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
@@ -211,19 +293,23 @@ func TestMigrateProposal(t *testing.T) {
 	require.NoError(t, wasmKeeper.importCode(ctx, 2, codeInfoFixture, wasmCode))
 
 	var (
-		anyAddress   sdk.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
-		otherAddress sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
-		contractAddr                = BuildContractAddress(1, 1)
+		anyAddress   = DeterministicAccountAddress(t, 1)
+		otherAddress = DeterministicAccountAddress(t, 2)
+		contractAddr = BuildContractAddressClassic(1, 1)
 	)
 
-	contractInfoFixture := types.ContractInfoFixture(func(c *types.ContractInfo) {
+	contractInfo := types.ContractInfoFixture(func(c *types.ContractInfo) {
 		c.Label = "testing"
 		c.Admin = anyAddress.String()
+		c.Created = types.NewAbsoluteTxPosition(ctx)
 	})
+	entries := []types.ContractCodeHistoryEntry{
+		{Operation: types.ContractCodeHistoryOperationTypeInit, CodeID: 1, Updated: contractInfo.Created},
+	}
 	key, err := hex.DecodeString("636F6E666967")
 	require.NoError(t, err)
 	m := types.Model{Key: key, Value: []byte(`{"verifier":"AAAAAAAAAAAAAAAAAAAAAAAAAAA=","beneficiary":"AAAAAAAAAAAAAAAAAAAAAAAAAAA=","funder":"AQEBAQEBAQEBAQEBAQEBAQEBAQE="}`)}
-	require.NoError(t, wasmKeeper.importContract(ctx, contractAddr, &contractInfoFixture, []types.Model{m}))
+	require.NoError(t, wasmKeeper.importContract(ctx, contractAddr, &contractInfo, []types.Model{m}, entries))
 
 	migMsg := struct {
 		Verifier sdk.AccAddress `json:"verifier"`
@@ -258,7 +344,7 @@ func TestMigrateProposal(t *testing.T) {
 	assert.Equal(t, anyAddress.String(), cInfo.Admin)
 	assert.Equal(t, "testing", cInfo.Label)
 	expHistory := []types.ContractCodeHistoryEntry{{
-		Operation: types.ContractCodeHistoryOperationTypeGenesis,
+		Operation: types.ContractCodeHistoryOperationTypeInit,
 		CodeID:    firstCodeID,
 		Updated:   types.NewAbsoluteTxPosition(ctx),
 	}, {
@@ -392,9 +478,9 @@ func TestSudoProposal(t *testing.T) {
 func TestAdminProposals(t *testing.T) {
 	var (
 		otherAddress sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
-		contractAddr                = BuildContractAddress(1, 1)
+		contractAddr                = BuildContractAddressClassic(1, 1)
 	)
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	specs := map[string]struct {
@@ -454,10 +540,18 @@ func TestAdminProposals(t *testing.T) {
 				InstantiateDefaultPermission: types.AccessTypeNobody,
 			})
 
-			codeInfoFixture := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
-			require.NoError(t, wasmKeeper.importCode(ctx, 1, codeInfoFixture, wasmCode))
+			codeInfo := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
+			require.NoError(t, wasmKeeper.importCode(ctx, 1, codeInfo, wasmCode))
 
-			require.NoError(t, wasmKeeper.importContract(ctx, contractAddr, &spec.state, []types.Model{}))
+			entries := []types.ContractCodeHistoryEntry{
+				{
+					Operation: types.ContractCodeHistoryOperationTypeInit,
+					CodeID:    1,
+					Updated:   spec.state.Created,
+				},
+			}
+
+			require.NoError(t, wasmKeeper.importContract(ctx, contractAddr, &spec.state, []types.Model{}, entries))
 			// when stored
 			storedProposal, err := govKeeper.SubmitProposal(ctx, spec.srcProposal)
 			require.NoError(t, err)

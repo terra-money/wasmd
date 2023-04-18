@@ -10,10 +10,10 @@ import (
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	ibctransfertypes "github.com/cosmos/ibc-go/v4/modules/apps/transfer/types"
+	clienttypes "github.com/cosmos/ibc-go/v4/modules/core/02-client/types"
+	channeltypes "github.com/cosmos/ibc-go/v4/modules/core/04-channel/types"
+	ibctesting "github.com/cosmos/ibc-go/v4/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -193,7 +193,7 @@ func TestContractCanInitiateIBCTransferMsg(t *testing.T) {
 	require.Equal(t, 0, len(chainB.PendingSendPackets))
 
 	// and dest chain balance contains voucher
-	bankKeeperB := chainB.GetTestSupport().BankKeeper()
+	bankKeeperB := chainB.App.BankKeeper
 	expBalance := ibctransfertypes.GetTransferCoin(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, coinToSendToB.Denom, coinToSendToB.Amount)
 	gotBalance := chainB.Balance(chainB.SenderAccount.GetAddress(), expBalance.Denom)
 	assert.Equal(t, expBalance, gotBalance, "got total balance: %s", bankKeeperB.GetAllBalances(chainB.GetContext(), chainB.SenderAccount.GetAddress()))
@@ -268,7 +268,7 @@ func TestContractCanEmulateIBCTransferMessage(t *testing.T) {
 	require.Equal(t, 0, len(chainB.PendingSendPackets))
 
 	// and dest chain balance contains voucher
-	bankKeeperB := chainB.GetTestSupport().BankKeeper()
+	bankKeeperB := chainB.App.BankKeeper
 	expBalance := ibctransfertypes.GetTransferCoin(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, coinToSendToB.Denom, coinToSendToB.Amount)
 	gotBalance := chainB.Balance(chainB.SenderAccount.GetAddress(), expBalance.Denom)
 	assert.Equal(t, expBalance, gotBalance, "got total balance: %s", bankKeeperB.GetAllBalances(chainB.GetContext(), chainB.SenderAccount.GetAddress()))
@@ -356,6 +356,70 @@ func TestContractCanEmulateIBCTransferMessageWithTimeout(t *testing.T) {
 	assert.Equal(t, initialSenderBalance.String(), newSenderBalance.String())
 }
 
+func TestContractEmulateIBCTransferMessageOnDiffContractIBCChannel(t *testing.T) {
+	// scenario: given two chains, A and B
+	//           with 2 contract A1 and A2 on chain A
+	//           then the contract A2 try to send an ibc packet via IBC Channel that create by A1 and B
+	myContractA1 := &sendEmulatedIBCTransferContract{}
+	myContractA2 := &sendEmulatedIBCTransferContract{}
+
+	var (
+		chainAOpts = []wasmkeeper.Option{
+			wasmkeeper.WithWasmEngine(
+				wasmtesting.NewIBCContractMockWasmer(myContractA1),
+			),
+			wasmkeeper.WithWasmEngine(
+				wasmtesting.NewIBCContractMockWasmer(myContractA2),
+			),
+		}
+
+		coordinator = wasmibctesting.NewCoordinator(t, 2, chainAOpts)
+
+		chainA = coordinator.GetChain(wasmibctesting.GetChainID(0))
+		chainB = coordinator.GetChain(wasmibctesting.GetChainID(1))
+	)
+
+	coordinator.CommitBlock(chainA, chainB)
+	myContractAddr1 := chainA.SeedNewContractInstance()
+	myContractA1.contractAddr = myContractAddr1.String()
+	myContractAddr2 := chainA.SeedNewContractInstance()
+	myContractA2.contractAddr = myContractAddr2.String()
+
+	path := wasmibctesting.NewPath(chainA, chainB)
+	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+		PortID:  chainA.ContractInfo(myContractAddr1).IBCPortID,
+		Version: ibctransfertypes.Version,
+		Order:   channeltypes.UNORDERED,
+	}
+	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+		PortID:  ibctransfertypes.PortID,
+		Version: ibctransfertypes.Version,
+		Order:   channeltypes.UNORDERED,
+	}
+	coordinator.SetupConnections(path)
+	coordinator.CreateChannels(path)
+
+	// when contract is triggered to send the ibc package to chain B
+	timeout := uint64(chainB.LastHeader.Header.Time.Add(time.Hour).UnixNano()) // enough time to not timeout
+	receiverAddress := chainB.SenderAccount.GetAddress()
+	coinToSendToB := sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100))
+
+	// start transfer from chainA - A2 to chainB via IBC channel
+	startMsg := &types.MsgExecuteContract{
+		Sender:   chainA.SenderAccount.GetAddress().String(),
+		Contract: myContractAddr2.String(),
+		Msg: startTransfer{
+			ChannelID:    path.EndpointA.ChannelID,
+			CoinsToSend:  coinToSendToB,
+			ReceiverAddr: receiverAddress.String(),
+			Timeout:      timeout,
+		}.GetBytes(),
+		Funds: sdk.NewCoins(coinToSendToB),
+	}
+	_, err := chainA.SendMsgs(startMsg)
+	require.Error(t, err)
+}
+
 func TestContractHandlesChannelClose(t *testing.T) {
 	// scenario: a contract is the sending side of an ics20 transfer but the packet was not received
 	// on the destination chain within the timeout boundaries
@@ -397,6 +461,66 @@ func TestContractHandlesChannelClose(t *testing.T) {
 	coordinator.CreateChannels(path)
 	coordinator.CloseChannel(path)
 	assert.True(t, myContractB.closeCalled)
+}
+
+func TestContractHandlesChannelCloseNotOwned(t *testing.T) {
+	// scenario: given two chains,
+	//           with a contract A1, A2 on chain A, contract B on chain B
+	//           contract A2 try to close ibc channel that create between A1 and B
+
+	myContractA1 := &closeChannelContract{}
+	myContractA2 := &closeChannelContract{}
+	myContractB := &closeChannelContract{}
+
+	var (
+		chainAOpts = []wasmkeeper.Option{
+			wasmkeeper.WithWasmEngine(
+				wasmtesting.NewIBCContractMockWasmer(myContractA1)),
+			wasmkeeper.WithWasmEngine(
+				wasmtesting.NewIBCContractMockWasmer(myContractA2)),
+		}
+		chainBOpts = []wasmkeeper.Option{
+			wasmkeeper.WithWasmEngine(
+				wasmtesting.NewIBCContractMockWasmer(myContractB)),
+		}
+		coordinator = wasmibctesting.NewCoordinator(t, 2, chainAOpts, chainBOpts)
+
+		chainA = coordinator.GetChain(wasmibctesting.GetChainID(0))
+		chainB = coordinator.GetChain(wasmibctesting.GetChainID(1))
+	)
+
+	coordinator.CommitBlock(chainA, chainB)
+	myContractAddrA1 := chainA.SeedNewContractInstance()
+	myContractAddrA2 := chainA.SeedNewContractInstance()
+	_ = chainB.SeedNewContractInstance() // skip one instance
+	_ = chainB.SeedNewContractInstance() // skip one instance
+	myContractAddrB := chainB.SeedNewContractInstance()
+
+	path := wasmibctesting.NewPath(chainA, chainB)
+	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+		PortID:  chainA.ContractInfo(myContractAddrA1).IBCPortID,
+		Version: ibctransfertypes.Version,
+		Order:   channeltypes.UNORDERED,
+	}
+	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+		PortID:  chainB.ContractInfo(myContractAddrB).IBCPortID,
+		Version: ibctransfertypes.Version,
+		Order:   channeltypes.UNORDERED,
+	}
+	coordinator.SetupConnections(path)
+	coordinator.CreateChannels(path)
+
+	closeIBCChannelMsg := &types.MsgExecuteContract{
+		Sender:   chainA.SenderAccount.GetAddress().String(),
+		Contract: myContractAddrA2.String(),
+		Msg: closeIBCChannel{
+			ChannelID: path.EndpointA.ChannelID,
+		}.GetBytes(),
+		Funds: sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100))),
+	}
+
+	_, err := chainA.SendMsgs(closeIBCChannelMsg)
+	require.Error(t, err)
 }
 
 var _ wasmtesting.IBCContractCallbacks = &captureCloseContract{}
@@ -497,6 +621,43 @@ func (c *sendEmulatedIBCTransferContract) IBCPacketTimeout(codeID wasmvm.Checksu
 	return &wasmvmtypes.IBCBasicResponse{Messages: []wasmvmtypes.SubMsg{{ReplyOn: wasmvmtypes.ReplyNever, Msg: wasmvmtypes.CosmosMsg{Bank: returnTokens}}}}, 0, nil
 }
 
+var _ wasmtesting.IBCContractCallbacks = &closeChannelContract{}
+
+type closeChannelContract struct {
+	contractStub
+	t *testing.T
+}
+
+func (c *closeChannelContract) IBCChannelClose(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCChannelCloseMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error) {
+	return &wasmvmtypes.IBCBasicResponse{}, 1, nil
+}
+
+func (s *closeChannelContract) Execute(code wasmvm.Checksum, env wasmvmtypes.Env, info wasmvmtypes.MessageInfo, executeMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.Response, uint64, error) {
+	var in closeIBCChannel
+	if err := json.Unmarshal(executeMsg, &in); err != nil {
+		return nil, 0, err
+	}
+	ibcMsg := &wasmvmtypes.IBCMsg{
+		CloseChannel: &wasmvmtypes.CloseChannelMsg{
+			ChannelID: in.ChannelID,
+		},
+	}
+
+	return &wasmvmtypes.Response{Messages: []wasmvmtypes.SubMsg{{ReplyOn: wasmvmtypes.ReplyNever, Msg: wasmvmtypes.CosmosMsg{IBC: ibcMsg}}}}, 0, nil
+}
+
+type closeIBCChannel struct {
+	ChannelID string
+}
+
+func (g closeIBCChannel) GetBytes() types.RawContractMessage {
+	b, err := json.Marshal(g)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
 // custom contract execute payload
 type startTransfer struct {
 	ChannelID       string
@@ -535,7 +696,7 @@ func (c *ackReceiverContract) IBCPacketReceive(codeID wasmvm.Checksum, env wasmv
 	// call original ibctransfer keeper to not copy all code into this
 	ibcPacket := toIBCPacket(packet)
 	ctx := c.chain.GetContext() // HACK: please note that this is not reverted after checkTX
-	err := c.chain.GetTestSupport().TransferKeeper().OnRecvPacket(ctx, ibcPacket, src)
+	err := c.chain.App.TransferKeeper.OnRecvPacket(ctx, ibcPacket, src)
 	if err != nil {
 		return nil, 0, sdkerrors.Wrap(err, "within our smart contract")
 	}
@@ -560,7 +721,7 @@ func (c *ackReceiverContract) IBCPacketAck(codeID wasmvm.Checksum, env wasmvmtyp
 	// call original ibctransfer keeper to not copy all code into this
 	ctx := c.chain.GetContext() // HACK: please note that this is not reverted after checkTX
 	ibcPacket := toIBCPacket(msg.OriginalPacket)
-	err := c.chain.GetTestSupport().TransferKeeper().OnAcknowledgementPacket(ctx, ibcPacket, data, ack)
+	err := c.chain.App.TransferKeeper.OnAcknowledgementPacket(ctx, ibcPacket, data, ack)
 	if err != nil {
 		return nil, 0, sdkerrors.Wrap(err, "within our smart contract")
 	}

@@ -5,7 +5,8 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	channeltypes "github.com/cosmos/ibc-go/v4/modules/core/04-channel/types"
+	ibctesting "github.com/cosmos/ibc-go/v4/testing"
 )
 
 // Path contains two endpoints representing two chains connected over IBC
@@ -40,7 +41,7 @@ func (path *Path) SetChannelOrdered() {
 // if EndpointA does not contain a packet commitment for that packet. An error is returned
 // if a relay step fails or the packet commitment does not exist on either endpoint.
 func (path *Path) RelayPacket(packet channeltypes.Packet, ack []byte) error {
-	pc := path.EndpointA.Chain.App.GetIBCKeeper().ChannelKeeper.GetPacketCommitment(path.EndpointA.Chain.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
+	pc := path.EndpointA.Chain.App.IBCKeeper.ChannelKeeper.GetPacketCommitment(path.EndpointA.Chain.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 	if bytes.Equal(pc, channeltypes.CommitPacket(path.EndpointA.Chain.App.AppCodec(), packet)) {
 
 		// packet found, relay from A to B
@@ -48,18 +49,24 @@ func (path *Path) RelayPacket(packet channeltypes.Packet, ack []byte) error {
 			return err
 		}
 
-		if err := path.EndpointB.RecvPacket(packet); err != nil {
+		res, err := path.EndpointB.RecvPacketWithResult(packet)
+		if err != nil {
+			return err
+		}
+
+		ack, err := ibctesting.ParseAckFromEvents(res.GetEvents())
+		if err != nil {
 			return err
 		}
 
 		if err := path.EndpointA.AcknowledgePacket(packet, ack); err != nil {
 			return err
 		}
-		return nil
 
+		return nil
 	}
 
-	pc = path.EndpointB.Chain.App.GetIBCKeeper().ChannelKeeper.GetPacketCommitment(path.EndpointB.Chain.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
+	pc = path.EndpointB.Chain.App.IBCKeeper.ChannelKeeper.GetPacketCommitment(path.EndpointB.Chain.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 	if bytes.Equal(pc, channeltypes.CommitPacket(path.EndpointB.Chain.App.AppCodec(), packet)) {
 
 		// packet found, relay B to A
@@ -67,9 +74,16 @@ func (path *Path) RelayPacket(packet channeltypes.Packet, ack []byte) error {
 			return err
 		}
 
-		if err := path.EndpointA.RecvPacket(packet); err != nil {
+		res, err := path.EndpointA.RecvPacketWithResult(packet)
+		if err != nil {
 			return err
 		}
+
+		ack, err := ibctesting.ParseAckFromEvents(res.GetEvents())
+		if err != nil {
+			return err
+		}
+
 		if err := path.EndpointB.AcknowledgePacket(packet, ack); err != nil {
 			return err
 		}
